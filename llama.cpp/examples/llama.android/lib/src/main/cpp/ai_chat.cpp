@@ -420,6 +420,9 @@ Java_com_arm_aichat_internal_InferenceEngineImpl_processUserPrompt(
     // Reset long-term & short-term states so each notification classification starts with a 100% clean context
     reset_long_term_states(true);
     reset_short_term_states();
+    if (g_sampler) {
+        common_sampler_reset(g_sampler);
+    }
 
     // Obtain and tokenize user prompt
     const auto *const user_prompt = env->GetStringUTFChars(juser_prompt, nullptr);

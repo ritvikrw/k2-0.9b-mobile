@@ -1,17 +1,45 @@
 package com.example.llama.aichat.ai
 
 object K2PromptBuilder {
-    fun buildUserContext(generalContext: String?, rules: List<String>): String {
+
+    fun buildRelevantUserContext(
+        generalContext: String?,
+        rules: List<String>,
+        appName: String,
+        sender: String?,
+        title: String?,
+        text: String?
+    ): String {
         val builder = StringBuilder()
         if (!generalContext.isNullOrBlank()) {
             builder.append("User General Context:\n").append(generalContext.trim()).append("\n\n")
         }
-        if (rules.isNotEmpty()) {
-            builder.append("User Defined Rules (MUST FOLLOW):\n")
-            rules.forEach { rule ->
+
+        val contentLower = "${appName.lowercase()} ${sender?.lowercase() ?: ""} ${title?.lowercase() ?: ""} ${text?.lowercase() ?: ""}"
+        
+        // Include rules that are either general (not person-specific) OR match the current notification content
+        val relevantRules = rules.filter { rule ->
+            val ruleLower = rule.lowercase().trim()
+            val tokens = ruleLower.split(Regex("[^a-zA-Z0-9_]+")).filter { it.length >= 3 }
+            val isPersonRule = ruleLower.contains("from ") || ruleLower.contains("message from") || ruleLower.contains("messages from")
+            if (!isPersonRule) {
+                true // general rule
+            } else {
+                // Only include if at least one meaningful token matches the notification content
+                tokens.any { token -> 
+                    token !in setOf("any", "all", "message", "messages", "from", "important", "urgent", "alert") &&
+                    contentLower.contains(token)
+                }
+            }
+        }
+
+        if (relevantRules.isNotEmpty()) {
+            builder.append("Relevant User Rules:\n")
+            relevantRules.forEach { rule ->
                 builder.append("- ").append(rule.trim()).append("\n")
             }
         }
+
         val result = builder.toString().trim()
         return if (result.isEmpty()) "No specific user rules or context provided." else result
     }
@@ -32,38 +60,32 @@ object K2PromptBuilder {
         val safeCategory = category?.ifBlank { "other" } ?: "other"
 
         return """
-            You are an on-device AI notification analyzer.
-            Analyze the notification content against the USER CONTEXT & RULES and output a JSON decision.
+            You are a strict on-device notification classification engine.
+            Classify this notification based ONLY on the provided USER CONTEXT and notification content.
 
-            USER CONTEXT & RULES:
+            USER CONTEXT:
             $userContext
 
-            NOTIFICATION TO CLASSIFY:
-            - App: $safeApp ($packageName)
+            NOTIFICATION TO EVALUATE:
+            - App: $safeApp
             - Sender: $safeSender
             - Title: $safeTitle
-            - Message Body: $safeText
-            - Category: $safeCategory
+            - Message: $safeText
 
-            EVALUATION GUIDELINES:
-            1. SUMMARY: Write a concise 1-sentence summary describing the actual message/content. STRICTLY ground it in the actual message text. DO NOT use the literal text "short summary". DO NOT copy rule names into unrelated app notifications.
-            2. URGENCY & IMPORTANCE:
-               - Read the 'Message Body' carefully.
-               - If user rules or context designate a person or topic as important only when urgent (e.g., 'urgent messages from X'), check if the message is actually urgent (needs quick action, emergency, time-sensitive question, call, meeting) vs casual (greetings, memes, casual chatter).
-               - Mark "important": true if it matches an important rule, is urgent, or matters to user context. Otherwise "important": false.
-            3. ALERT:
-               - Set "alert": true ONLY if this notification requires an immediate chime alert (urgent action needed or explicitly requested in rules).
-               - Set "alert": false for casual messages, marketing, background updates, or non-urgent notifications.
-            4. REASON: 1 short phrase explaining why it was classified as important/unimportant.
-            5. CATEGORY: One of: personal, work, college, finance, social, delivery, security, promotional, other.
-            6. Output ONLY valid JSON matching the schema below.
+            STRICT CLASSIFICATION RULES:
+            1. DEFAULT TO FALSE: Casual messages (e.g. "Hi", "Hello", memes), sports scores, screenshots, system notices, promotional deals are NOT IMPORTANT ("important": false, "alert": false).
+            2. IMPORTANCE: Mark "important": true ONLY if the notification content directly matches the User Context or contains an explicit urgent matter.
+            3. ALERT: Mark "alert": true ONLY if immediate sound notification is necessary. Otherwise "alert": false.
+            4. SUMMARY: 1 short sentence summarizing ONLY what $safeSender wrote/sent. NEVER invent facts or mention people not in this notification.
+            5. REASON: 1 short sentence explaining why it is important or not important.
+            6. CATEGORY: One of: personal, work, college, finance, social, delivery, security, promotional, other.
 
-            JSON Schema:
+            Return JSON ONLY:
             {
               "important": false,
               "alert": false,
-              "summary": "Clear summary of this notification",
-              "reason": "Reason for decision",
+              "summary": "Summary of $safeSender message",
+              "reason": "Reason for classification",
               "category": "other"
             }
         """.trimIndent()
