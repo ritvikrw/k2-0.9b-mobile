@@ -35,6 +35,9 @@ interface NotificationDao {
     @Query("SELECT * FROM notification_records WHERE processed = 0")
     suspend fun getUnprocessedNotifications(): List<NotificationRecord>
 
+    @Delete
+    suspend fun delete(record: NotificationRecord)
+
     @Update
     suspend fun update(record: NotificationRecord)
 }

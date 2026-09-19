@@ -38,6 +38,7 @@ fun MainScreen(
     val context = LocalContext.current
     val importantNotifications by viewModel.importantNotifications.collectAsState(initial = emptyList())
     val unimportantNotifications by viewModel.unimportantNotifications.collectAsState(initial = emptyList())
+    val allNotifications by viewModel.allNotifications.collectAsState(initial = emptyList())
     val rules by viewModel.rules.collectAsState(initial = emptyList())
     val isAccessEnabled by viewModel.isNotificationAccessEnabled.collectAsState()
     val isPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsState()
@@ -46,14 +47,39 @@ fun MainScreen(
     val importantContext by viewModel.importantContext.collectAsState()
     val isAiAlertSoundEnabled by viewModel.isAiAlertSoundEnabled.collectAsState()
     val selectedNotification by viewModel.selectedNotification.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
+    val activeFilter by viewModel.activeFilter.collectAsState()
 
     var showAddRuleDialog by remember { mutableStateOf(false) }
+    var initialRuleSuggestion by remember { mutableStateOf("") }
     var ruleToEdit by remember { mutableStateOf<NotificationRule?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: android.net.Uri? ->
         uri?.let { viewModel.importModel(it) }
+    }
+
+    // Filter notifications based on activeFilter and searchQuery
+    val filteredNotifications = remember(allNotifications, importantNotifications, unimportantNotifications, activeFilter, searchQuery) {
+        val baseList = when (activeFilter) {
+            "IMPORTANT" -> importantNotifications
+            "NOT_IMPORTANT" -> unimportantNotifications
+            else -> allNotifications
+        }
+        if (searchQuery.isBlank()) {
+            baseList
+        } else {
+            val q = searchQuery.trim().lowercase()
+            baseList.filter {
+                (it.appName.lowercase().contains(q)) ||
+                (it.sender?.lowercase()?.contains(q) == true) ||
+                (it.title?.lowercase()?.contains(q) == true) ||
+                (it.summary.lowercase().contains(q)) ||
+                (it.text?.lowercase()?.contains(q) == true) ||
+                (it.aiCategory.lowercase().contains(q))
+            }
+        }
     }
 
     Scaffold(
@@ -103,63 +129,87 @@ fun MainScreen(
 
                 RulesSection(
                     rules = rules,
-                    onAddClick = { showAddRuleDialog = true },
+                    onAddClick = {
+                        initialRuleSuggestion = ""
+                        showAddRuleDialog = true
+                    },
                     onToggle = { viewModel.toggleRule(it) },
                     onEdit = { ruleToEdit = it },
                     onDelete = { viewModel.deleteRule(it) }
                 )
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Text("TODAY", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                // Search & Filter Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("NOTIFICATIONS", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text(
+                        "${filteredNotifications.size} item${if (filteredNotifications.size != 1) "s" else ""}",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.setSearchQuery(it) },
+                    placeholder = { Text("Search sender, text, app...") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Delete, contentDescription = "Clear search", tint = Color.Gray, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = activeFilter == "ALL",
+                        onClick = { viewModel.setActiveFilter("ALL") },
+                        label = { Text("All (${allNotifications.size})") }
+                    )
+                    FilterChip(
+                        selected = activeFilter == "IMPORTANT",
+                        onClick = { viewModel.setActiveFilter("IMPORTANT") },
+                        label = { Text("⚡ Important (${importantNotifications.size})") }
+                    )
+                    FilterChip(
+                        selected = activeFilter == "NOT_IMPORTANT",
+                        onClick = { viewModel.setActiveFilter("NOT_IMPORTANT") },
+                        label = { Text("Other (${unimportantNotifications.size})") }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
-            if (importantNotifications.isEmpty() && unimportantNotifications.isEmpty()) {
+            if (filteredNotifications.isEmpty()) {
                 item {
                     Text(
-                        "No notifications analyzed yet.",
+                        if (searchQuery.isNotBlank()) "No notifications match '$searchQuery'" else "No notifications analyzed yet.",
                         color = Color.Gray,
-                        modifier = Modifier.padding(vertical = 12.dp)
+                        modifier = Modifier.padding(vertical = 16.dp)
                     )
                 }
             } else {
-                if (importantNotifications.isNotEmpty()) {
-                    item {
-                        Text(
-                            "IMPORTANT",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-                        )
-                    }
-                    items(importantNotifications) { record ->
-                        NotificationItem(
-                            record = record,
-                            isImportant = true,
-                            onClick = { viewModel.selectNotification(record) }
-                        )
-                    }
-                }
-
-                if (unimportantNotifications.isNotEmpty()) {
-                    item {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            "NOT IMPORTANT",
-                            color = Color.Gray,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
-                        )
-                    }
-                    items(unimportantNotifications) { record ->
-                        NotificationItem(
-                            record = record,
-                            isImportant = false,
-                            onClick = { viewModel.selectNotification(record) }
-                        )
-                    }
+                items(filteredNotifications, key = { it.id }) { record ->
+                    NotificationItem(
+                        record = record,
+                        isImportant = record.important,
+                        onClick = { viewModel.selectNotification(record) }
+                    )
                 }
             }
 
@@ -197,7 +247,7 @@ fun MainScreen(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Clear History")
+                    Text("Clear All History")
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -206,7 +256,7 @@ fun MainScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Text(
-                        "Your notifications are analyzed locally on this device using the K2 AI model. Notification content is not sent to a cloud AI service.",
+                        "Your notifications are analyzed locally on this device using the K2 AI model. Notification content is never sent to a cloud AI service.",
                         fontSize = 12.sp,
                         color = Color.Gray,
                         modifier = Modifier.padding(12.dp)
@@ -219,6 +269,7 @@ fun MainScreen(
 
     if (showAddRuleDialog) {
         AddRuleDialog(
+            initialText = initialRuleSuggestion,
             onDismiss = { showAddRuleDialog = false },
             onConfirm = { text ->
                 viewModel.addRule(text)
@@ -241,7 +292,12 @@ fun MainScreen(
     selectedNotification?.let { record ->
         NotificationDetailDialog(
             record = record,
-            onDismiss = { viewModel.selectNotification(null) }
+            onDismiss = { viewModel.selectNotification(null) },
+            onDelete = { viewModel.deleteNotification(record) },
+            onAddRuleForSender = { sender ->
+                initialRuleSuggestion = "Urgent messages from $sender are important."
+                showAddRuleDialog = true
+            }
         )
     }
 }
@@ -424,36 +480,99 @@ fun NotificationItem(
     isImportant: Boolean,
     onClick: () -> Unit
 ) {
-    Column(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 8.dp)
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isImportant) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Text(
-            text = record.summary,
-            fontWeight = if (isImportant) FontWeight.SemiBold else FontWeight.Normal,
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 3.dp)) {
-            val appInfo = if (!record.sender.isNullOrBlank() && record.sender != record.appName) {
-                "${record.appName} · ${record.sender}"
-            } else {
-                record.appName
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Badge for App & Category
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val appInfo = if (!record.sender.isNullOrBlank() && record.sender != record.appName) {
+                        "${record.appName} · ${record.sender}"
+                    } else {
+                        record.appName
+                    }
+                    Text(
+                        text = appInfo,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isImportant) MaterialTheme.colorScheme.primary else Color.Gray
+                    )
+                }
+
+                // Urgency tag / timestamp
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (record.important && record.alert) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Text(
+                                "⚡ ALERT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (record.important) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.padding(end = 6.dp)
+                        ) {
+                            Text(
+                                "⭐ IMPORTANT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    Text(formatTime(record.timestamp), fontSize = 11.sp, color = Color.Gray)
+                }
             }
-            Text(appInfo, fontSize = 12.sp, color = Color.Gray)
-            Spacer(modifier = Modifier.weight(1f))
-            Text(formatTime(record.timestamp), fontSize = 12.sp, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = record.summary,
+                fontWeight = if (isImportant) FontWeight.SemiBold else FontWeight.Normal,
+                fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            if (!record.reason.isBlank()) {
+                Text(
+                    text = "AI: ${record.reason}",
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
         }
-        HorizontalDivider(modifier = Modifier.padding(top = 8.dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.3f))
     }
 }
 
 @Composable
 fun NotificationDetailDialog(
     record: NotificationRecord,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onDelete: () -> Unit,
+    onAddRuleForSender: (String) -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -499,7 +618,21 @@ fun NotificationDetailDialog(
 
                 if (record.important && record.alert) {
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("AI Chime Alert Triggered: YES", fontSize = 12.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)
+                    Text("AI Chime Alert Triggered: YES (⚡)", fontSize = 12.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (!record.sender.isNullOrBlank() && record.sender != record.appName) {
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onAddRuleForSender(record.sender)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Add Rule for '${record.sender}'")
+                    }
                 }
             }
         },
@@ -507,23 +640,61 @@ fun NotificationDetailDialog(
             Button(onClick = onDismiss) {
                 Text("Close")
             }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Delete")
+            }
         }
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun AddRuleDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
+fun AddRuleDialog(
+    initialText: String = "",
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var text by remember { mutableStateOf(initialText) }
+    val suggestions = listOf(
+        "Urgent messages from Mom are important",
+        "OTP and verification codes are important",
+        "Delivery and courier updates are important",
+        "Bank transaction alerts are important"
+    )
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Add Rule") },
         text = {
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("e.g. Messages from my parents are important.") },
-                modifier = Modifier.fillMaxWidth()
-            )
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text("e.g. Urgent messages from Rahul are important.") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Suggestions:", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
+                Spacer(modifier = Modifier.height(4.dp))
+
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    suggestions.forEach { suggestion ->
+                        SuggestionChip(
+                            onClick = { text = suggestion },
+                            label = { Text(suggestion, fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
         },
         confirmButton = {
             Button(onClick = { if (text.isNotBlank()) onConfirm(text) }) { Text("Add") }

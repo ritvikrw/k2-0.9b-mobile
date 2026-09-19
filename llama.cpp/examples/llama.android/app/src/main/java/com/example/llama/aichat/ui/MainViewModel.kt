@@ -23,6 +23,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     val importantNotifications = notificationRepo.importantNotifications
     val unimportantNotifications = notificationRepo.unimportantNotifications
+    val allNotifications = notificationRepo.allNotifications
     val rules = ruleRepo.allRules
 
     val modelState = K2InferenceManager.getInstance(application).state
@@ -45,6 +46,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _selectedNotification = MutableStateFlow<NotificationRecord?>(null)
     val selectedNotification: StateFlow<NotificationRecord?> = _selectedNotification
 
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery
+
+    private val _activeFilter = MutableStateFlow("ALL") // "ALL", "IMPORTANT", "NOT_IMPORTANT"
+    val activeFilter: StateFlow<String> = _activeFilter
+
     init {
         checkNotificationAccess()
 
@@ -52,6 +59,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             importantNotifications.collectLatest { list ->
                 summaryManager.updateSummary(list)
+            }
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun setActiveFilter(filter: String) {
+        _activeFilter.value = filter
+    }
+
+    fun deleteNotification(record: NotificationRecord) {
+        viewModelScope.launch {
+            notificationRepo.delete(record)
+            if (_selectedNotification.value?.id == record.id) {
+                _selectedNotification.value = null
             }
         }
     }
