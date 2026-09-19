@@ -1,0 +1,35 @@
+# Model files & large binaries
+*.gguf
+*.bin
+*.db
+*.sqlite
+*.sqlite3
+
+# Python cache & virtual environments
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# Android & Gradle build artifacts
+.gradle/
+**/build/
+build/
+**/.cxx/
+.cxx/
+*.apk
+*.aab
+local.properties
+.idea/
+*.iml
+
+# Native build artifacts & compiled libraries
+*.o
+*.a
+*.so
+*.dll
+*.exe
+*.tmp
+*.log

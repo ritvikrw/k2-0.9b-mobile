@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/action_search"
+        android:icon="@android:drawable/ic_menu_search"
+        android:title="Search"
+        app:showAsAction="ifRoom|collapseActionView"
+        app:actionViewClass="androidx.appcompat.widget.SearchView" />
+    <item
+        android:id="@+id/action_persona"
+        android:title="Persona"
+        app:showAsAction="never">
+        <menu>
+            <item android:id="@+id/persona_default" android:title="Default Assistant" />
+            <item android:id="@+id/persona_concise" android:title="Ultra-Fast Concise" />
+            <item android:id="@+id/persona_engineer" android:title="Senior Software Engineer" />
+            <item android:id="@+id/persona_analyst" android:title="Deep Analytical Reasoner" />
+        </menu>
+    </item>
+    <item
+        android:id="@+id/action_export"
+        android:title="Export Chat (.md)"
+        app:showAsAction="never" />
+</menu>

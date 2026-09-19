@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>K2 Horizon AI - Local ChatGPT Assistant</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0fdf4',
+              500: '#10b981',
+              600: '#059669',
+            },
+            dark: {
+              950: '#080808',
+              900: '#0f0f11',
+              850: '#18181b',
+              800: '#222226',
+              700: '#323238',
+              600: '#484852'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Marked.js for Markdown & Highlight.js for Code Syntax Highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body class="bg-dark-950 text-gray-100 h-[100dvh] flex overflow-hidden font-sans antialiased select-none">
+
+  <!-- Mobile Sidebar Backdrop -->
+  <div id="sidebar-backdrop" class="fixed inset-0 bg-black/60 z-20 hidden md:hidden transition-opacity duration-200"></div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="fixed md:static inset-y-0 left-0 w-72 bg-dark-900 border-r border-dark-700/80 flex flex-col flex-shrink-0 transition-transform duration-300 z-30 -translate-x-full md:translate-x-0 shadow-2xl md:shadow-none">
+    
+    <!-- Sidebar Header -->
+    <div class="p-3 border-b border-dark-700/70 flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center font-bold text-white shadow-md shadow-emerald-500/20 text-xs">
+          K2
+        </div>
+        <div>
+          <h1 class="text-xs font-semibold tracking-wide flex items-center space-x-1">
+            <span>K2 Horizon</span>
+            <span class="px-1.5 py-0.2 rounded text-[9px] bg-emerald-500/20 text-emerald-400 font-mono">Q4</span>
+          </h1>
+          <p class="text-[10px] text-gray-400 font-mono">Local &bull; Offline AI</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-1">
+        <button id="new-chat-btn" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-200 hover:text-emerald-400 transition" title="New Chat">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+        </button>
+        <button id="close-sidebar-btn" class="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 md:hidden" title="Close Menu">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Search Conversations -->
+    <div class="p-2 border-b border-dark-700/70">
+      <div class="relative">
+        <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-gray-500"></i>
+        <input 
+          id="chat-search" 
+          type="text" 
+          placeholder="Search chats..."
+          class="w-full bg-dark-800/80 border border-dark-700/60 rounded-lg pl-8 pr-3 py-1.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-emerald-500/50"
+        >
+      </div>
+    </div>
+
+    <!-- Model Filter Tabs -->
+    <div class="p-2 border-b border-dark-700/70 grid grid-cols-3 gap-1 text-xs">
+      <button data-filter="all" class="filter-tab active py-1.5 rounded-md text-center font-medium bg-dark-800 text-white transition">All</button>
+      <button data-filter="0.9b" class="filter-tab py-1.5 rounded-md text-center font-medium text-gray-400 hover:text-white transition">⚡ 0.9B Q4</button>
+      <button data-filter="7b" class="filter-tab py-1.5 rounded-md text-center font-medium text-gray-400 hover:text-white transition">🧠 7B</button>
+    </div>
+
+    <!-- Chat History List -->
+    <div id="chat-list" class="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+      <!-- Injected via JS -->
+    </div>
+
+    <!-- Sidebar Footer / Hardware Telemetry -->
+    <div class="p-3 border-t border-dark-700/70 bg-dark-950/60 text-[11px] space-y-1.5 text-gray-400">
+      <div class="flex items-center justify-between">
+        <span class="flex items-center space-x-1.5">
+          <i data-lucide="cpu" class="w-3.5 h-3.5 text-emerald-400"></i>
+          <span>Ryzen 7 (CPU)</span>
+        </span>
+        <span class="text-emerald-400 font-mono font-semibold">4-Bit Q4</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="flex items-center space-x-1.5">
+          <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span>RAM / Storage</span>
+        </span>
+        <span class="text-indigo-400 font-mono font-semibold">32GB (6GB Freed)</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 flex flex-col h-[100dvh] relative bg-dark-950 overflow-hidden">
+    
+    <!-- Top Header Bar -->
+    <header class="h-14 border-b border-dark-700/70 px-4 flex items-center justify-between bg-dark-900/80 backdrop-blur-md z-10">
+      <div class="flex items-center space-x-2.5">
+        <button id="toggle-sidebar-btn" class="p-2 rounded-lg hover:bg-dark-800 text-gray-300 md:hidden">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+        <div id="header-model-info" class="flex items-center space-x-2">
+          <span id="chat-title" class="text-sm font-semibold text-gray-200 truncate max-w-[140px] sm:max-w-xs md:max-w-md">K2 Horizon AI</span>
+          <div id="locked-model-badge" class="hidden px-2.5 py-0.5 rounded-full text-[11px] font-mono font-medium border items-center space-x-1">
+            <span id="badge-text">0.9B Q4</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Header Controls: Persona Switcher, Export, Live Speedometer -->
+      <div class="flex items-center space-x-2">
+        <!-- Persona Dropdown -->
+        <div class="relative">
+          <select id="persona-select" class="bg-dark-800 border border-dark-700 rounded-lg px-2.5 py-1 text-xs text-gray-300 focus:outline-none focus:border-emerald-500/50 cursor-pointer">
+            <option value="default">✨ Default Assistant</option>
+            <option value="concise">⚡ Ultra-Fast & Concise</option>
+            <option value="coder">💻 Expert Senior Coder</option>
+            <option value="reasoner">🧠 Deep Analytical Thinker</option>
+            <option value="writer">📝 Creative Writer & Editor</option>
+          </select>
+        </div>
+
+        <!-- Export Chat Button -->
+        <button id="export-chat-btn" class="hidden p-1.5 rounded-lg bg-dark-800 hover:bg-dark-700 text-gray-400 hover:text-gray-200 transition" title="Export Conversation to Markdown">
+          <i data-lucide="download" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Live Speedometer Pill (Active when generating) -->
+        <div id="live-speedometer" class="hidden items-center space-x-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono">
+          <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+          <span id="live-speed-val">0.0 tok/s</span>
+          <span class="text-gray-600 hidden sm:inline">|</span>
+          <span id="live-time-val" class="hidden sm:inline">0.0s</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Chat Messages Scroll Container -->
+    <div id="chat-container" class="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4 max-w-3xl mx-auto w-full custom-scrollbar">
+      
+      <!-- Landing / Model Picker View (when no chat is active or empty chat) -->
+      <div id="landing-view" class="h-full flex flex-col items-center justify-center text-center px-4 max-w-xl mx-auto py-8">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 via-teal-500 to-indigo-600 flex items-center justify-center text-2xl font-bold text-white shadow-xl shadow-emerald-500/25 mb-3">
+          K2
+        </div>
+        <h2 class="text-xl sm:text-2xl font-bold text-white mb-1">K2 Horizon AI Assistant</h2>
+        <p class="text-gray-400 text-xs mb-6">Choose a model to start a conversation with speech, documents, and camera capabilities.</p>
+
+        <!-- Model Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 w-full text-left mb-6">
+          
+          <!-- Option 1: 0.9B Q4 -->
+          <div data-choose-model="0.9b" class="model-select-card cursor-pointer p-3.5 rounded-xl bg-dark-900 border border-dark-700/80 hover:border-emerald-500/60 hover:bg-dark-850 transition group relative overflow-hidden">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 font-mono text-xs font-semibold flex items-center space-x-1">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                <span>0.9B (Q4 4-Bit)</span>
+              </span>
+              <span class="text-[11px] text-emerald-400/80 font-mono font-semibold">~600 MB RAM</span>
+            </div>
+            <h3 class="text-xs sm:text-sm font-semibold text-gray-100 group-hover:text-emerald-400 transition">Ultra-Fast & Mobile Optimized</h3>
+            <p class="text-[11px] text-gray-400 mt-1 leading-relaxed">Quantized to 4-bit NF4. Sub-second TTFT with low memory usage. Perfect for phones and quick tasks.</p>
+            <div class="mt-2.5 pt-2.5 border-t border-dark-700/60 flex items-center justify-between text-[10px] text-gray-400 font-mono">
+              <span>Latency: <strong class="text-emerald-400">&lt; 250ms</strong></span>
+              <span>Memory: <strong class="text-emerald-400">4-Bit Q4</strong></span>
+            </div>
+          </div>
+
+          <!-- Option 2: 7B -->
+          <div data-choose-model="7b" class="model-select-card cursor-pointer p-3.5 rounded-xl bg-dark-900 border border-dark-700/80 hover:border-indigo-500/60 hover:bg-dark-850 transition group relative overflow-hidden">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 font-mono text-xs font-semibold flex items-center space-x-1">
+                <i data-lucide="brain" class="w-3.5 h-3.5"></i>
+                <span>K2 Horizon 7B</span>
+              </span>
+              <span class="text-[11px] text-indigo-400/80 font-mono">~14 GB RAM</span>
+            </div>
+            <h3 class="text-xs sm:text-sm font-semibold text-gray-100 group-hover:text-indigo-400 transition">Deep Agentic Reasoning</h3>
+            <p class="text-[11px] text-gray-400 mt-1 leading-relaxed">Full chain-of-thought logic, multi-step problem solving, and complex software engineering.</p>
+            <div class="mt-2.5 pt-2.5 border-t border-dark-700/60 flex items-center justify-between text-[10px] text-gray-400 font-mono">
+              <span>Latency: <strong class="text-indigo-400">~1.2s</strong></span>
+              <span>Mode: <strong class="text-indigo-400">Deep Think</strong></span>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Prompt Starters / Suggestions -->
+        <div class="w-full text-left">
+          <p class="text-[11px] text-gray-400 mb-2 font-medium">Quick Starters:</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            <button class="starter-chip p-2.5 rounded-lg bg-dark-900 border border-dark-700/60 hover:border-emerald-500/40 hover:bg-dark-850 text-gray-300 text-left transition flex items-center space-x-2" data-prompt="Explain the difference between synchronous and asynchronous programming with code examples.">
+              <span class="text-base">💻</span>
+              <span class="truncate">Async vs Sync Programming</span>
+            </button>
+            <button class="starter-chip p-2.5 rounded-lg bg-dark-900 border border-dark-700/60 hover:border-emerald-500/40 hover:bg-dark-850 text-gray-300 text-left transition flex items-center space-x-2" data-prompt="Summarize how quantum computing works and its real-world applications in 3 bullet points.">
+              <span class="text-base">⚛️</span>
+              <span class="truncate">Quantum Computing in 3 Bullets</span>
+            </button>
+            <button class="starter-chip p-2.5 rounded-lg bg-dark-900 border border-dark-700/60 hover:border-emerald-500/40 hover:bg-dark-850 text-gray-300 text-left transition flex items-center space-x-2" data-prompt="Write a Python script that analyzes and summarizes an uploaded CSV or text dataset.">
+              <span class="text-base">📊</span>
+              <span class="truncate">Python Data Analysis Script</span>
+            </button>
+            <button class="starter-chip p-2.5 rounded-lg bg-dark-900 border border-dark-700/60 hover:border-emerald-500/40 hover:bg-dark-850 text-gray-300 text-left transition flex items-center space-x-2" data-prompt="Help me brainstorm 5 innovative AI startup ideas that run locally on mobile devices.">
+              <span class="text-base">💡</span>
+              <span class="truncate">Brainstorm Local AI Ideas</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Messages Stream Target -->
+      <div id="messages-list" class="space-y-4 hidden">
+        <!-- Messages rendered via app.js -->
+      </div>
+    </div>
+
+    <!-- Voice Listening Active Wave Bar -->
+    <div id="voice-recording-indicator" class="hidden px-4 py-2 bg-emerald-500/10 border-t border-emerald-500/30 flex items-center justify-between text-xs text-emerald-400">
+      <div class="flex items-center space-x-2.5">
+        <span class="w-3 h-3 rounded-full bg-emerald-500 animate-ping"></span>
+        <span class="font-medium">Listening... Speak now into your phone/mic</span>
+      </div>
+      <button id="stop-mic-btn" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs">
+        Done
+      </button>
+    </div>
+
+    <!-- Attachment Tray (Pills for uploaded files / photos before sending) -->
+    <div id="attachments-tray" class="hidden px-4 pt-2 bg-dark-900/60 border-t border-dark-700/60 max-w-3xl mx-auto w-full">
+      <div id="attachments-list" class="flex flex-wrap gap-2"></div>
+    </div>
+
+    <!-- Input Footer -->
+    <div class="p-3 sm:p-4 border-t border-dark-700/70 bg-dark-900/80 backdrop-blur-md">
+      <div class="max-w-3xl mx-auto relative">
+        <form id="chat-form" class="relative bg-dark-850 border border-dark-700 rounded-2xl shadow-lg focus-within:border-emerald-500/50 transition">
+          
+          <!-- Hidden File Inputs -->
+          <input type="file" id="doc-file-input" class="hidden" multiple accept=".pdf,.doc,.docx,.txt,.md,.py,.js,.ts,.html,.css,.json,.csv,.sql,.c,.cpp">
+          <input type="file" id="camera-file-input" class="hidden" accept="image/*" capture="environment">
+          <input type="file" id="gallery-file-input" class="hidden" accept="image/*">
+
+          <div class="flex items-center px-2 pt-1 pb-1">
+            <!-- Attachment Menu Button -->
+            <div class="relative">
+              <button 
+                type="button" 
+                id="attach-menu-btn" 
+                class="p-2 rounded-xl text-gray-400 hover:text-gray-100 hover:bg-dark-700/60 transition"
+                title="Attach Document or Photo"
+              >
+                <i data-lucide="paperclip" class="w-4 h-4"></i>
+              </button>
+
+              <!-- Attachment Popup Menu -->
+              <div id="attach-dropdown" class="hidden absolute bottom-12 left-0 w-48 bg-dark-800 border border-dark-700 rounded-xl shadow-2xl py-1.5 z-30 text-xs">
+                <button type="button" id="upload-doc-btn" class="w-full px-3 py-2 text-left text-gray-200 hover:bg-dark-700 flex items-center space-x-2 transition">
+                  <i data-lucide="file-text" class="w-4 h-4 text-emerald-400"></i>
+                  <span>Upload Document / PDF</span>
+                </button>
+                <button type="button" id="upload-camera-btn" class="w-full px-3 py-2 text-left text-gray-200 hover:bg-dark-700 flex items-center space-x-2 transition">
+                  <i data-lucide="camera" class="w-4 h-4 text-indigo-400"></i>
+                  <span>Take Photo / Camera</span>
+                </button>
+                <button type="button" id="upload-image-btn" class="w-full px-3 py-2 text-left text-gray-200 hover:bg-dark-700 flex items-center space-x-2 transition">
+                  <i data-lucide="image" class="w-4 h-4 text-teal-400"></i>
+                  <span>Photo Library / Gallery</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Message Textarea -->
+            <textarea 
+              id="user-input" 
+              rows="1" 
+              placeholder="Message K2 Horizon (or tap mic / attach documents)..."
+              class="flex-1 bg-transparent text-gray-100 placeholder-gray-500 px-2 py-2.5 focus:outline-none resize-none max-h-40 custom-scrollbar text-sm"
+            ></textarea>
+
+            <!-- Action Buttons: Mic & Send / Stop -->
+            <div class="flex items-center space-x-1 pl-1">
+              <!-- Microphone Button -->
+              <button 
+                type="button" 
+                id="mic-btn" 
+                class="p-2 rounded-xl text-gray-400 hover:text-emerald-400 hover:bg-dark-700/60 transition"
+                title="Voice Input (Speech-to-Text)"
+              >
+                <i data-lucide="mic" class="w-4 h-4"></i>
+              </button>
+
+              <!-- Send Button -->
+              <button 
+                type="submit" 
+                id="send-btn" 
+                class="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-40 disabled:hover:bg-emerald-600 transition shadow-md shadow-emerald-600/20"
+                title="Send Message"
+              >
+                <i data-lucide="arrow-up" class="w-4 h-4"></i>
+              </button>
+
+              <!-- Stop Generation Button (Hidden until generating) -->
+              <button 
+                type="button" 
+                id="stop-gen-btn" 
+                class="hidden p-2 rounded-xl bg-red-600 hover:bg-red-500 text-white transition shadow-md shadow-red-600/20 animate-pulse"
+                title="Stop Generation"
+              >
+                <i data-lucide="square" class="w-4 h-4 fill-white"></i>
+              </button>
+            </div>
+
+          </div>
+        </form>
+
+        <!-- Footer Telemetry Label -->
+        <div class="flex items-center justify-between mt-1.5 px-2 text-[10px] text-gray-500 font-mono">
+          <span>K2 0.9B Q4 &bull; Offline &bull; No Data Leaves Device</span>
+          <span id="footer-status" class="text-emerald-400/80 font-semibold">Ready</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
+

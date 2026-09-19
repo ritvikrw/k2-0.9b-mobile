@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_height="match_parent"
+    android:layout_width="match_parent">
+
+    <LinearLayout
+        android:fitsSystemWindows="true"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        tools:context=".MainActivity">
+
+        <!-- Top Header for Status and Metrics -->
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="?attr/colorPrimaryContainer"
+            app:title="K2 Horizon 0.9B Q4"
+            app:titleCentered="true" />
+
+        <TextView
+            android:id="@+id/gguf"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="8dp"
+            android:maxLines="2"
+            android:ellipsize="end"
+            android:background="?attr/colorSurfaceVariant"
+            android:text="No model loaded"
+            style="@style/TextAppearance.Material3.BodySmall" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/messages"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:padding="8dp"
+            app:reverseLayout="false"
+            tools:listitem="@layout/item_message_assistant"/>
+
+        <!-- Attachment Preview Bar -->
+        <HorizontalScrollView
+            android:id="@+id/attachment_preview_scroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:paddingHorizontal="16dp"
+            android:paddingVertical="4dp">
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/attachment_chips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </HorizontalScrollView>
+
+        <!-- Input Area -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp"
+            app:cardCornerRadius="24dp"
+            app:cardElevation="2dp"
+            app:strokeWidth="0dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="bottom"
+                android:padding="4dp">
+
+                <ImageButton
+                    android:id="@+id/btn_attach"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/outline_attach_file_24"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <ImageButton
+                    android:id="@+id/btn_camera"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/outline_photo_camera_24"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <EditText
+                    android:id="@+id/user_input"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_gravity="center_vertical"
+                    android:background="@null"
+                    android:hint="Message"
+                    android:maxLines="5"
+                    android:minHeight="48dp"
+                    android:paddingHorizontal="8dp"
+                    style="@style/TextAppearance.Material3.BodyLarge" />
+
+                <ImageButton
+                    android:id="@+id/btn_mic"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/outline_mic_24"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <com.google.android.material.floatingactionbutton.FloatingActionButton
+                    android:id="@+id/fab"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_margin="4dp"
+                    app:fabSize="mini"
+                    app:elevation="0dp"
+                    android:src="@drawable/outline_send_24"
+                    app:tint="@android:color/white" />
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</androidx.constraintlayout.widget.ConstraintLayout>
