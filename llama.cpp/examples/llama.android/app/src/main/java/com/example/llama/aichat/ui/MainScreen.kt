@@ -31,16 +31,21 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(viewModel: MainViewModel) {
+fun MainScreen(
+    viewModel: MainViewModel,
+    onRequestNotificationPermission: () -> Unit = {}
+) {
     val context = LocalContext.current
     val importantNotifications by viewModel.importantNotifications.collectAsState(initial = emptyList())
     val unimportantNotifications by viewModel.unimportantNotifications.collectAsState(initial = emptyList())
     val rules by viewModel.rules.collectAsState(initial = emptyList())
     val isAccessEnabled by viewModel.isNotificationAccessEnabled.collectAsState()
+    val isPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsState()
     val isEnabled by viewModel.isEnabled.collectAsState()
     val modelState by viewModel.modelState.collectAsState()
     val importantContext by viewModel.importantContext.collectAsState()
     val isAiAlertSoundEnabled by viewModel.isAiAlertSoundEnabled.collectAsState()
+    val selectedNotification by viewModel.selectedNotification.collectAsState()
 
     var showAddRuleDialog by remember { mutableStateOf(false) }
     var ruleToEdit by remember { mutableStateOf<NotificationRule?>(null) }
@@ -73,10 +78,14 @@ fun MainScreen(viewModel: MainViewModel) {
         ) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
-                StatusSection(isAccessEnabled, modelState,
+                StatusSection(
+                    isAccessEnabled = isAccessEnabled,
+                    isPermissionGranted = isPermissionGranted,
+                    modelState = modelState,
                     onEnableClick = {
                         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
+                    onRequestPermissionClick = onRequestNotificationPermission,
                     onRetryClick = {
                         viewModel.retryModelLoad()
                     },
@@ -124,7 +133,13 @@ fun MainScreen(viewModel: MainViewModel) {
                             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                         )
                     }
-                    items(importantNotifications) { NotificationItem(it, isImportant = true) }
+                    items(importantNotifications) { record ->
+                        NotificationItem(
+                            record = record,
+                            isImportant = true,
+                            onClick = { viewModel.selectNotification(record) }
+                        )
+                    }
                 }
 
                 if (unimportantNotifications.isNotEmpty()) {
@@ -138,7 +153,13 @@ fun MainScreen(viewModel: MainViewModel) {
                             modifier = Modifier.padding(top = 4.dp, bottom = 4.dp)
                         )
                     }
-                    items(unimportantNotifications) { NotificationItem(it, isImportant = false) }
+                    items(unimportantNotifications) { record ->
+                        NotificationItem(
+                            record = record,
+                            isImportant = false,
+                            onClick = { viewModel.selectNotification(record) }
+                        )
+                    }
                 }
             }
 
@@ -216,13 +237,22 @@ fun MainScreen(viewModel: MainViewModel) {
             }
         )
     }
+
+    selectedNotification?.let { record ->
+        NotificationDetailDialog(
+            record = record,
+            onDismiss = { viewModel.selectNotification(null) }
+        )
+    }
 }
 
 @Composable
 fun StatusSection(
     isAccessEnabled: Boolean,
+    isPermissionGranted: Boolean,
     modelState: K2InferenceManager.State,
     onEnableClick: () -> Unit,
+    onRequestPermissionClick: () -> Unit,
     onRetryClick: () -> Unit,
     onPickFileClick: () -> Unit
 ) {
@@ -247,6 +277,22 @@ fun StatusSection(
                     Text("Enable Notification Access")
                 }
             }
+
+            if (!isPermissionGranted) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Alert Notifications: ", fontWeight = FontWeight.Medium)
+                    Text("Permission required", color = Color.Red, fontSize = 12.sp)
+                }
+                Button(
+                    onClick = onRequestPermissionClick,
+                    modifier = Modifier.padding(top = 4.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("Grant Notification Permission")
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -373,14 +419,24 @@ fun RulesSection(
 }
 
 @Composable
-fun NotificationItem(record: NotificationRecord, isImportant: Boolean) {
-    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+fun NotificationItem(
+    record: NotificationRecord,
+    isImportant: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp)
+    ) {
         Text(
-            record.summary,
+            text = record.summary,
             fontWeight = if (isImportant) FontWeight.SemiBold else FontWeight.Normal,
-            fontSize = 14.sp
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onBackground
         )
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 3.dp)) {
             val appInfo = if (!record.sender.isNullOrBlank() && record.sender != record.appName) {
                 "${record.appName} · ${record.sender}"
             } else {
@@ -390,8 +446,69 @@ fun NotificationItem(record: NotificationRecord, isImportant: Boolean) {
             Spacer(modifier = Modifier.weight(1f))
             Text(formatTime(record.timestamp), fontSize = 12.sp, color = Color.Gray)
         }
-        HorizontalDivider(modifier = Modifier.padding(top = 6.dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.5f))
+        HorizontalDivider(modifier = Modifier.padding(top = 8.dp), thickness = 0.5.dp, color = Color.LightGray.copy(alpha = 0.3f))
     }
+}
+
+@Composable
+fun NotificationDetailDialog(
+    record: NotificationRecord,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(
+                    text = record.summary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+                Text(
+                    text = "${record.appName}${if (!record.sender.isNullOrBlank()) " · " + record.sender else ""}",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (!record.title.isNullOrBlank() && record.title != record.summary) {
+                    Text("Original Title:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color.Gray)
+                    Text(record.title, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                }
+
+                if (!record.text.isNullOrBlank()) {
+                    Text("Original Message:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color.Gray)
+                    Text(record.text, fontSize = 13.sp, modifier = Modifier.padding(bottom = 8.dp))
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                Text("AI Decision Reason:", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Color.Gray)
+                Text(record.reason, fontSize = 13.sp, modifier = Modifier.padding(bottom = 6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Category: ${record.aiCategory}", fontSize = 12.sp, color = Color.Gray)
+                    Text(formatTime(record.timestamp), fontSize = 12.sp, color = Color.Gray)
+                }
+
+                if (record.important && record.alert) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("AI Chime Alert Triggered: YES", fontSize = 12.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Medium)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
 }
 
 @Composable

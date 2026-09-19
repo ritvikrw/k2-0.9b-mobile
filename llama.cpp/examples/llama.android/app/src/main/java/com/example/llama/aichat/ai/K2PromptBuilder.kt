@@ -25,33 +25,41 @@ object K2PromptBuilder {
         sender: String?,
         category: String?
     ): String {
+        val safeApp = appName.ifBlank { "App" }
+        val safeSender = sender?.ifBlank { "Unknown" } ?: "Unknown"
+        val safeTitle = title?.ifBlank { "N/A" } ?: "N/A"
+        val safeText = text?.ifBlank { "N/A" } ?: "N/A"
+        val safeCategory = category?.ifBlank { "other" } ?: "other"
+
         return """
             You are an on-device AI notification analyzer.
-            Analyze the notification below and determine if it is IMPORTANT or NOT IMPORTANT based on the USER CONTEXT and RULES.
+            Analyze the notification content against the USER CONTEXT & RULES and classify it into JSON.
 
             USER CONTEXT & RULES:
             $userContext
 
-            NOTIFICATION DETAILS:
-            App: $appName
-            Package: $packageName
-            Sender: ${sender?.ifBlank { "Unknown" } ?: "Unknown"}
-            Title: ${title?.ifBlank { "N/A" } ?: "N/A"}
-            Content: ${text?.ifBlank { "N/A" } ?: "N/A"}
-            Category: ${category?.ifBlank { "N/A" } ?: "N/A"}
+            NOTIFICATION TO CLASSIFY:
+            - App: $safeApp ($packageName)
+            - Sender: $safeSender
+            - Title: $safeTitle
+            - Message: $safeText
+            - Category: $safeCategory
 
-            DECISION INSTRUCTIONS:
-            1. If any User Rule matches the Sender name, App, Title, or Content (e.g. sender is mentioned in a rule as important), you MUST set "important": true and "alert": true.
-            2. If the notification is casual chatter, spam, promotional, or battery/system status unrelated to rules, set "important": false and "alert": false.
-            3. Return ONLY a valid JSON object. Do NOT use markdown.
+            CRITICAL RULES:
+            1. SUMMARY: Write a concise 1-sentence summary based STRICTLY on the actual notification content (e.g., "$safeSender sent a message about..."). NEVER use the phrase "short summary" or copy rule names into unrelated notifications.
+            2. IMPORTANCE: Mark "important": true if the notification matches a user rule, contains an urgent request, or relates to important user context. Otherwise mark "important": false.
+            3. ALERT: Set "alert": true ONLY if the notification requires an immediate chime alert based on user context/rules.
+            4. REASON: Explain your decision in 1 short phrase.
+            5. CATEGORY: One of: personal, work, college, finance, social, delivery, security, promotional, other.
+            6. Output ONLY valid raw JSON with no markdown formatting.
 
-            Format:
+            JSON Schema:
             {
-              "important": true,
-              "alert": true,
-              "summary": "short summary",
-              "reason": "short reason",
-              "category": "personal"
+              "important": false,
+              "alert": false,
+              "summary": "Specific summary of $safeApp notification",
+              "reason": "Reason for classification",
+              "category": "other"
             }
         """.trimIndent()
     }

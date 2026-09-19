@@ -54,6 +54,30 @@ class NotificationListener : NotificationListenerService() {
             text = bigText
         }
 
+        // Check EXTRA_TEXT_LINES (InboxStyle notifications)
+        if (text.isNullOrBlank()) {
+            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            if (!lines.isNullOrEmpty()) {
+                text = lines.filterNotNull().joinToString("\n") { it.toString().trim() }
+            }
+        }
+
+        // Check EXTRA_MESSAGES text (MessagingStyle notifications)
+        try {
+            val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            if (!messages.isNullOrEmpty()) {
+                val lastMsg = messages.lastOrNull()
+                if (lastMsg is android.os.Bundle) {
+                    val msgText = lastMsg.getCharSequence("text")?.toString()?.trim()
+                    if (!msgText.isNullOrBlank() && (text.isNullOrBlank() || text!!.contains("new message", ignoreCase = true))) {
+                        text = msgText
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d("NotificationListener", "Error extracting message text: ${e.message}")
+        }
+
         val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
 
         // Extract sender name

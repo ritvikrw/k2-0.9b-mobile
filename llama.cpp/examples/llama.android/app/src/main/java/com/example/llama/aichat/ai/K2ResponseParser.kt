@@ -37,7 +37,10 @@ object K2ResponseParser {
 
             val important = importantMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
             val alert = alertMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
-            val summary = summaryMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim()?.ifEmpty { defaultSummary } ?: defaultSummary
+            var summary = summaryMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim()?.ifEmpty { defaultSummary } ?: defaultSummary
+            if (summary.equals("short summary", ignoreCase = true) || summary.startsWith("Specific summary of", ignoreCase = true)) {
+                summary = defaultSummary
+            }
             val reason = reasonMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim() ?: "Analyzed by local AI"
             val rawCategory = categoryMatch?.groupValues?.getOrNull(1)?.lowercase()?.trim() ?: "other"
             val validatedCategory = if (ALLOWED_CATEGORIES.contains(rawCategory)) rawCategory else "other"

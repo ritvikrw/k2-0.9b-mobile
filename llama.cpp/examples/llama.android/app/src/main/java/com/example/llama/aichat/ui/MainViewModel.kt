@@ -30,6 +30,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isNotificationAccessEnabled = MutableStateFlow(false)
     val isNotificationAccessEnabled: StateFlow<Boolean> = _isNotificationAccessEnabled
 
+    private val _isNotificationPermissionGranted = MutableStateFlow(true)
+    val isNotificationPermissionGranted: StateFlow<Boolean> = _isNotificationPermissionGranted
+
     private val _isEnabled = MutableStateFlow(prefs.getBoolean("enabled", true))
     val isEnabled: StateFlow<Boolean> = _isEnabled
 
@@ -39,8 +42,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAiAlertSoundEnabled = MutableStateFlow(prefs.getBoolean("ai_alert_sound_enabled", true))
     val isAiAlertSoundEnabled: StateFlow<Boolean> = _isAiAlertSoundEnabled
 
+    private val _selectedNotification = MutableStateFlow<NotificationRecord?>(null)
+    val selectedNotification: StateFlow<NotificationRecord?> = _selectedNotification
+
     init {
         checkNotificationAccess()
+
+        // Maintain persistent notification shade summary in sync with important records
+        viewModelScope.launch {
+            importantNotifications.collectLatest { list ->
+                summaryManager.updateSummary(list)
+            }
+        }
+    }
+
+    fun updateNotificationPermissionStatus(granted: Boolean) {
+        _isNotificationPermissionGranted.value = granted
+    }
+
+    fun selectNotification(record: NotificationRecord?) {
+        _selectedNotification.value = record
     }
 
     fun toggleEnabled() {
