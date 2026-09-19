@@ -203,6 +203,7 @@ class NotificationProcessor(
                 if (isConditionalUrgency) {
                     if (isImportant || shouldAlert) {
                         isImportant = true
+                        shouldAlert = true
                         decisionReason = "Urgent message matching rule: ${matchingRule.text}"
                     } else {
                         isImportant = false
@@ -211,12 +212,12 @@ class NotificationProcessor(
                     }
                 } else {
                     isImportant = true
-                    shouldAlert = ruleLower.contains("alert") || shouldAlert
+                    shouldAlert = true
                     decisionReason = "Matches user rule: ${matchingRule.text}"
                 }
             } else if (matchesGeneralJobContext) {
                 isImportant = true
-                shouldAlert = contextLower.contains("alert") || shouldAlert
+                shouldAlert = true
                 decisionReason = "Matches important context: job-related message"
             } else if (isSystemOrScreenshot) {
                 isImportant = false
@@ -249,7 +250,19 @@ class NotificationProcessor(
                     isImportant = false
                     shouldAlert = false
                     decisionReason = "General notification; no matching rule"
+                } else {
+                    shouldAlert = true
                 }
+            }
+
+            // Check if user has an explicit 'do not alert' rule for this sender
+            val isExplicitDoNotAlert = rules.any { rule ->
+                val rLower = rule.text.lowercase()
+                (rLower.contains("do not alert") || rLower.contains("dont alert") || rLower.contains("no alert")) &&
+                ((senderLower.isNotEmpty() && rLower.contains(senderLower)) || (titleLower.isNotEmpty() && rLower.contains(titleLower)) || (appLower.isNotEmpty() && rLower.contains(appLower)))
+            }
+            if (isExplicitDoNotAlert) {
+                shouldAlert = false
             }
 
             // 7. Sanitize Summary: Discard hallucinated contact names in summary
@@ -280,9 +293,10 @@ class NotificationProcessor(
             )
 
             notificationRepository.insert(record)
-            Log.d("NotificationProcessor", "AI Analysis Complete: Important=$isImportant, Sender=${data.sender}, Reason=$decisionReason")
+            Log.d("NotificationProcessor", "AI Analysis Complete: Important=$isImportant, Alert=$shouldAlert, Sender=${data.sender}, Reason=$decisionReason")
 
             if (record.important && record.alert) {
+                Log.d("NotificationProcessor", "Firing alert chime for ${data.sender ?: data.appName}")
                 alertManager.triggerAlert(record)
             }
 
