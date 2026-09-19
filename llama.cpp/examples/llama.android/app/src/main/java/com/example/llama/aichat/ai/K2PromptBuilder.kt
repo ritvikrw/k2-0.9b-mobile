@@ -33,7 +33,7 @@ object K2PromptBuilder {
 
         return """
             You are an on-device AI notification analyzer.
-            Analyze the notification content against the USER CONTEXT & RULES and classify it into JSON.
+            Analyze the notification content against the USER CONTEXT & RULES and output a JSON decision.
 
             USER CONTEXT & RULES:
             $userContext
@@ -42,23 +42,28 @@ object K2PromptBuilder {
             - App: $safeApp ($packageName)
             - Sender: $safeSender
             - Title: $safeTitle
-            - Message: $safeText
+            - Message Body: $safeText
             - Category: $safeCategory
 
-            CRITICAL RULES:
-            1. SUMMARY: Write a concise 1-sentence summary based STRICTLY on the actual notification content (e.g., "$safeSender sent a message about..."). NEVER use the phrase "short summary" or copy rule names into unrelated notifications.
-            2. IMPORTANCE: Mark "important": true if the notification matches a user rule, contains an urgent request, or relates to important user context. Otherwise mark "important": false.
-            3. ALERT: Set "alert": true ONLY if the notification requires an immediate chime alert based on user context/rules.
-            4. REASON: Explain your decision in 1 short phrase.
+            EVALUATION GUIDELINES:
+            1. SUMMARY: Write a concise 1-sentence summary describing the actual message/content. STRICTLY ground it in the actual message text. DO NOT use the literal text "short summary". DO NOT copy rule names into unrelated app notifications.
+            2. URGENCY & IMPORTANCE:
+               - Read the 'Message Body' carefully.
+               - If user rules or context designate a person or topic as important only when urgent (e.g., 'urgent messages from X'), check if the message is actually urgent (needs quick action, emergency, time-sensitive question, call, meeting) vs casual (greetings, memes, casual chatter).
+               - Mark "important": true if it matches an important rule, is urgent, or matters to user context. Otherwise "important": false.
+            3. ALERT:
+               - Set "alert": true ONLY if this notification requires an immediate chime alert (urgent action needed or explicitly requested in rules).
+               - Set "alert": false for casual messages, marketing, background updates, or non-urgent notifications.
+            4. REASON: 1 short phrase explaining why it was classified as important/unimportant.
             5. CATEGORY: One of: personal, work, college, finance, social, delivery, security, promotional, other.
-            6. Output ONLY valid raw JSON with no markdown formatting.
+            6. Output ONLY valid JSON matching the schema below.
 
             JSON Schema:
             {
               "important": false,
               "alert": false,
-              "summary": "Specific summary of $safeApp notification",
-              "reason": "Reason for classification",
+              "summary": "Clear summary of this notification",
+              "reason": "Reason for decision",
               "category": "other"
             }
         """.trimIndent()

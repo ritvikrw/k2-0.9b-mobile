@@ -26,7 +26,8 @@ class NotificationSummaryManager(private val context: Context) {
                 "Notification Analyzer Summary",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows the summary of important notifications"
+                description = "Shows the ongoing persistent summary of important notifications"
+                setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -42,23 +43,37 @@ class NotificationSummaryManager(private val context: Context) {
         )
 
         val title = if (importantNotifications.isEmpty()) {
-            "No important notifications"
+            "Notification Analyzer · Active"
         } else {
-            "${importantNotifications.size} important notifications"
+            "${importantNotifications.size} Important Notification${if (importantNotifications.size > 1) "s" else ""}"
+        }
+
+        val contentText = if (importantNotifications.isEmpty()) {
+            "0 priority items • Monitoring with on-device K2 AI"
+        } else {
+            importantNotifications.first().summary
         }
 
         val inboxStyle = NotificationCompat.InboxStyle()
-        importantNotifications.take(5).forEach {
-            inboxStyle.addLine("• ${it.summary}")
-        }
-        if (importantNotifications.size > 5) {
-            inboxStyle.setSummaryText("+${importantNotifications.size - 5} more")
+            .setBigContentTitle(title)
+            .setSummaryText("K2 On-Device AI")
+
+        if (importantNotifications.isEmpty()) {
+            inboxStyle.addLine("• No urgent notifications pending")
+        } else {
+            importantNotifications.take(6).forEach {
+                val prefix = if (!it.sender.isNullOrBlank() && it.sender != it.appName) "${it.sender}: " else "${it.appName}: "
+                inboxStyle.addLine("• $prefix${it.summary}")
+            }
+            if (importantNotifications.size > 6) {
+                inboxStyle.setSummaryText("+${importantNotifications.size - 6} more important")
+            }
         }
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_dialog_info) // Replace with app icon
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(title)
-            .setContentText(importantNotifications.firstOrNull()?.summary ?: "Tap to view full summary")
+            .setContentText(contentText)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(pendingIntent)
             .setStyle(inboxStyle)

@@ -169,8 +169,16 @@ class NotificationProcessor(
                 )
             }
 
-            if (matchingRule != null && !isImportant) {
-                Log.i("NotificationProcessor", "Explicit rule match enforced: '${matchingRule.text}' for sender '${data.sender}'")
+            val isConditionalUrgencyRule = matchingRule != null && (
+                matchingRule.text.lowercase().contains("urgent") || 
+                matchingRule.text.lowercase().contains("emergency") ||
+                matchingRule.text.lowercase().contains("only")
+            )
+
+            // For unconditional rules (e.g. 'Messages from Pranav are important'), enforce importance.
+            // For conditional rules (e.g. 'Urgent messages from Pranav'), trust AI's message body urgency evaluation.
+            if (matchingRule != null && !isImportant && !isConditionalUrgencyRule) {
+                Log.i("NotificationProcessor", "Unconditional rule match enforced: '${matchingRule.text}' for sender '${data.sender}'")
                 isImportant = true
                 shouldAlert = true
                 decisionReason = "Matched rule: ${matchingRule.text}"
