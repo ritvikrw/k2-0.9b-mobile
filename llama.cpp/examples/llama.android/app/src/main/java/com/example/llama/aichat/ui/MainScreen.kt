@@ -388,10 +388,12 @@ fun StatusSection(
             }
             val (stateText, stateColor) = when (modelState) {
                 K2InferenceManager.State.READY -> "Ready (Model Loaded)" to Color(0xFF4CAF50)
+                K2InferenceManager.State.INFERENCE -> "Analyzing..." to Color(0xFF00E5FF)
                 K2InferenceManager.State.LOADING -> "Loading / Copying..." to Color(0xFFFFA000)
+                K2InferenceManager.State.UNLOADING -> "Unloading..." to Color(0xFFFFA000)
                 K2InferenceManager.State.UNAVAILABLE -> "Unavailable" to Color.Red
                 K2InferenceManager.State.ERROR -> "Error" to Color.Red
-                K2InferenceManager.State.UNINITIALIZED -> "Uninitialized" to Color.Gray
+                K2InferenceManager.State.UNINITIALIZED -> "Standby (Unloaded)" to Color.Gray
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,

@@ -1,75 +1,74 @@
 package com.example.llama.aichat.ai
 
+import org.json.JSONObject
+
 data class NotificationAnalysis(
     val important: Boolean,
     val alert: Boolean,
-    val summary: String,
     val reason: String,
-    val category: String
+    val summary: String = "",
+    val category: String = "other"
 )
 
 object K2ResponseParser {
-    private val ALLOWED_CATEGORIES = setOf(
-        "personal", "work", "college", "finance", "social", "delivery", "security", "promotional", "other"
-    )
-
-    private val IMPORTANT_REGEX = Regex(""""important"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE)
-    private val ALERT_REGEX = Regex(""""alert"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE)
-    private val SUMMARY_REGEX = Regex(""""summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE)
-    private val REASON_REGEX = Regex(""""reason"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE)
-    private val CATEGORY_REGEX = Regex(""""category"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE)
 
     fun parse(rawResponse: String?, defaultSummary: String = "Notification received"): NotificationAnalysis {
         if (rawResponse.isNullOrBlank()) return fallback(defaultSummary)
 
+        val fullText = rawResponse.trim()
+        val jsonString = if (fullText.startsWith("{")) fullText else "{$fullText"
+
+        val start = jsonString.indexOf('{')
+        val end = jsonString.lastIndexOf('}')
+        val cleanJson = if (start != -1 && end != -1 && end > start) {
+            jsonString.substring(start, end + 1)
+        } else {
+            jsonString
+        }
+
         return try {
-            val jsonString = if (rawResponse.trimStart().startsWith("{")) {
-                rawResponse
-            } else {
-                "{\n$rawResponse"
-            }
-
-            val start = jsonString.indexOf('{')
-            val end = jsonString.lastIndexOf('}')
-            val cleanJson = if (start != -1 && end != -1 && end > start) {
-                jsonString.substring(start, end + 1)
-            } else {
-                jsonString
-            }
-
-            val importantMatch = IMPORTANT_REGEX.find(cleanJson)
-            val alertMatch = ALERT_REGEX.find(cleanJson)
-            val summaryMatch = SUMMARY_REGEX.find(cleanJson)
-            val reasonMatch = REASON_REGEX.find(cleanJson)
-            val categoryMatch = CATEGORY_REGEX.find(cleanJson)
-
-            val important = importantMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
-            val alert = alertMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
-            var summary = summaryMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim()?.ifEmpty { defaultSummary } ?: defaultSummary
-            if (summary.equals("short summary", ignoreCase = true) || summary.startsWith("Summary of", ignoreCase = true)) {
-                summary = defaultSummary
-            }
-            val reason = reasonMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim() ?: "Analyzed by local AI"
-            val rawCategory = categoryMatch?.groupValues?.getOrNull(1)?.lowercase()?.trim() ?: "other"
-            val validatedCategory = if (ALLOWED_CATEGORIES.contains(rawCategory)) rawCategory else "other"
+            val json = JSONObject(cleanJson)
+            val important = json.optBoolean("important", false)
+            // Strict invariant: alert can ONLY be true if important is true
+            val rawAlert = json.optBoolean("alert", false)
+            val alert = if (important) (rawAlert || true) else false
+            val reason = json.optString("reason", if (important) "Matches user rules or context" else "General notification")
+            val summary = json.optString("summary", defaultSummary).ifBlank { defaultSummary }
+            val category = json.optString("category", "other")
 
             NotificationAnalysis(
                 important = important,
                 alert = alert,
-                summary = summary,
                 reason = reason,
-                category = validatedCategory
+                summary = summary,
+                category = category
             )
         } catch (e: Exception) {
-            fallback(defaultSummary)
+            // Regex fallback for partially malformed JSON
+            val importantMatch = Regex(""""important"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE).find(cleanJson)
+            val alertMatch = Regex(""""alert"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE).find(cleanJson)
+            val reasonMatch = Regex(""""reason"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE).find(cleanJson)
+
+            val important = importantMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
+            val rawAlert = alertMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
+            val alert = if (important) (rawAlert || true) else false
+            val reason = reasonMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim() ?: if (important) "Matches user rules or context" else "General notification"
+
+            NotificationAnalysis(
+                important = important,
+                alert = alert,
+                reason = reason,
+                summary = defaultSummary,
+                category = "other"
+            )
         }
     }
 
     private fun fallback(summary: String) = NotificationAnalysis(
         important = false,
         alert = false,
+        reason = "Does not match user rules or context",
         summary = summary,
-        reason = "Notification evaluated",
         category = "other"
     )
 }

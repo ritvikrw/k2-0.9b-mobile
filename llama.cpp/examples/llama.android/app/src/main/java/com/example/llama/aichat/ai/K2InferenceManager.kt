@@ -8,7 +8,9 @@ import com.arm.aichat.AiChat
 import com.arm.aichat.InferenceEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,9 +25,11 @@ class K2InferenceManager private constructor(private val context: Context) {
     private val mutex = Mutex()
     private var engine: InferenceEngine? = null
     private var localLLM: LocalLLM? = null
+    private var idleJob: Job? = null
+    private var cachedModelPath: String? = null
 
     enum class State {
-        UNINITIALIZED, LOADING, READY, UNAVAILABLE, ERROR
+        UNINITIALIZED, LOADING, READY, INFERENCE, UNLOADING, UNAVAILABLE, ERROR
     }
 
     private val _state = MutableStateFlow(State.UNINITIALIZED)
@@ -39,6 +43,7 @@ class K2InferenceManager private constructor(private val context: Context) {
     companion object {
         private const val TAG = "K2InferenceManager"
         const val EXPECTED_MODEL_SIZE = 666184672L // Exact size for K2 Horizon 0.9B Q4_K_M
+        private const val IDLE_TIMEOUT_MS = 300_000L // 5 minutes
 
         @Volatile
         private var INSTANCE: K2InferenceManager? = null
@@ -64,6 +69,7 @@ class K2InferenceManager private constructor(private val context: Context) {
         val internalModel = File(internalModelsDir, "k2-horizon-0.9b-q4_k_m.gguf")
         if (internalModel.exists() && internalModel.length() > 500_000_000L) {
             Log.i(TAG, "Found valid internal model: ${internalModel.absolutePath} (${internalModel.length()} bytes)")
+            cachedModelPath = internalModel.absolutePath
             return@withContext initialize(internalModel.absolutePath)
         }
 
@@ -111,6 +117,7 @@ class K2InferenceManager private constructor(private val context: Context) {
                     if (internalModel.exists()) internalModel.delete()
                     tempFile.renameTo(internalModel)
                     Log.i(TAG, "Import completed to ${internalModel.absolutePath}")
+                    cachedModelPath = internalModel.absolutePath
                     initialize(internalModel.absolutePath)
                 } else {
                     tempFile.delete()
@@ -155,6 +162,7 @@ class K2InferenceManager private constructor(private val context: Context) {
             if (internalModel.exists()) internalModel.delete()
             tempFile.renameTo(internalModel)
             Log.i(TAG, "Successfully imported URI model: ${internalModel.length()} bytes")
+            cachedModelPath = internalModel.absolutePath
             initialize(internalModel.absolutePath)
         } catch (e: Exception) {
             Log.e(TAG, "URI import failed", e)
@@ -167,6 +175,7 @@ class K2InferenceManager private constructor(private val context: Context) {
     suspend fun initialize(modelPath: String): Boolean = mutex.withLock {
         _state.value = State.LOADING
         _errorMessage.value = null
+        val loadStart = System.currentTimeMillis()
 
         return try {
             val inferenceEngine = AiChat.getInferenceEngine(context)
@@ -180,8 +189,11 @@ class K2InferenceManager private constructor(private val context: Context) {
             inferenceEngine.loadModel(modelPath)
             engine = inferenceEngine
             localLLM = K2LocalLLM(inferenceEngine)
+            cachedModelPath = modelPath
             _state.value = State.READY
-            Log.i(TAG, "K2 Horizon 0.9B model successfully loaded and ready: $modelPath")
+            val loadMs = System.currentTimeMillis() - loadStart
+            Log.i(TAG, "K2 Horizon 0.9B model successfully loaded and ready in ${loadMs}ms: $modelPath")
+            resetIdleTimer()
             true
         } catch (e: Exception) {
             Log.e(TAG, "Model initialization failed for $modelPath", e)
@@ -192,12 +204,73 @@ class K2InferenceManager private constructor(private val context: Context) {
     }
 
     suspend fun analyze(prompt: String): String? = mutex.withLock {
-        if (_state.value != State.READY) return null
+        // Cancel active idle timer during inference
+        idleJob?.cancel()
+        idleJob = null
+
+        // Auto-reload on demand if model was unloaded
+        if (_state.value != State.READY && _state.value != State.INFERENCE) {
+            val path = cachedModelPath
+            if (path != null && File(path).exists()) {
+                Log.i(TAG, "Model currently in ${_state.value}; reloading on demand...")
+                _state.value = State.LOADING
+                try {
+                    val inferenceEngine = AiChat.getInferenceEngine(context)
+                    inferenceEngine.loadModel(path)
+                    engine = inferenceEngine
+                    localLLM = K2LocalLLM(inferenceEngine)
+                    _state.value = State.READY
+                    Log.i(TAG, "On-demand model reload completed successfully")
+                } catch (e: Exception) {
+                    Log.e(TAG, "On-demand model reload failed", e)
+                    _state.value = State.ERROR
+                    return null
+                }
+            } else {
+                Log.w(TAG, "Cannot analyze; model not loaded and no cached path available")
+                return null
+            }
+        }
+
+        _state.value = State.INFERENCE
+        val startInference = System.currentTimeMillis()
         return try {
-            localLLM?.generate(prompt, 128)
+            val result = localLLM?.generate(prompt, 128)
+            val duration = System.currentTimeMillis() - startInference
+            Log.i(TAG, "K2 Analysis finished in ${duration}ms (Response length: ${result?.length ?: 0} chars)")
+            _state.value = State.READY
+            resetIdleTimer()
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Inference failed", e)
+            _state.value = State.READY
+            resetIdleTimer()
             null
+        }
+    }
+
+    private fun resetIdleTimer() {
+        idleJob?.cancel()
+        idleJob = scope.launch {
+            delay(IDLE_TIMEOUT_MS)
+            unloadIdleModel()
+        }
+    }
+
+    private suspend fun unloadIdleModel() = mutex.withLock {
+        if (_state.value == State.READY) {
+            Log.i(TAG, "5-minute idle timeout reached. Unloading K2 model to free RAM...")
+            _state.value = State.UNLOADING
+            val unloadStart = System.currentTimeMillis()
+            try {
+                engine?.cleanUp()
+                val unloadMs = System.currentTimeMillis() - unloadStart
+                Log.i(TAG, "Model unloaded successfully in ${unloadMs}ms. Native RAM reclaimed.")
+                _state.value = State.UNINITIALIZED
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during idle unload", e)
+                _state.value = State.ERROR
+            }
         }
     }
 }

@@ -237,32 +237,59 @@ internal class InferenceEngineImpl private constructor(
             _readyForSystemPrompt = false
             _state.value = InferenceEngine.State.ProcessingUserPrompt
 
+            val promptStart = System.currentTimeMillis()
             processUserPrompt(message, predictLength).let { result ->
                 if (result != 0) {
                     Log.e(TAG, "Failed to process user prompt: $result")
                     return@flow
                 }
             }
+            val promptEvalMs = System.currentTimeMillis() - promptStart
 
-            Log.i(TAG, "User prompt processed. Generating assistant prompt...")
+            Log.i(TAG, "User prompt evaluated in ${promptEvalMs}ms. Generating assistant response...")
             _state.value = InferenceEngine.State.Generating
+
+            val genStart = System.currentTimeMillis()
+            var tokenCount = 0
+            var braceCount = 1 // Since prompt ends with "{"
+
             while (!_cancelGeneration) {
-                generateNextToken()?.let { utf8token ->
-                    if (utf8token.isNotEmpty()) emit(utf8token)
-                } ?: break
+                val utf8token = generateNextToken() ?: break
+                if (utf8token.isNotEmpty()) {
+                    tokenCount++
+                    emit(utf8token)
+
+                    // Check for JSON object completion to stop early
+                    for (ch in utf8token) {
+                        if (ch == '{') braceCount++
+                        else if (ch == '}') {
+                            braceCount--
+                            if (braceCount == 0) {
+                                // Full JSON completed, terminate generation immediately
+                                _cancelGeneration = true
+                                break
+                            }
+                        }
+                    }
+                }
             }
-            if (_cancelGeneration) {
-                Log.i(TAG, "Assistant generation aborted per requested.")
-            } else {
-                Log.i(TAG, "Assistant generation complete. Awaiting user prompt...")
-            }
+
+            val genMs = System.currentTimeMillis() - genStart
+            val totalMs = promptEvalMs + genMs
+            val tps = if (genMs > 0) (tokenCount * 1000.0) / genMs else 0.0
+
+            Log.i(TAG, "K2 Telemetry: eval=${promptEvalMs}ms, gen=${genMs}ms, total=${totalMs}ms, tokens=$tokenCount, speed=${"%.2f".format(tps)} t/s")
+
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.ModelReady
         } catch (e: CancellationException) {
             Log.i(TAG, "Assistant generation's flow collection cancelled.")
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.ModelReady
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error during generation!", e)
+            _cancelGeneration = false
             _state.value = InferenceEngine.State.Error(e)
             throw e
         }
