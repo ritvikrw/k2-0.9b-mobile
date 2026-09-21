@@ -19,20 +19,18 @@ object K2ResponseParser {
         val jsonString = if (fullText.startsWith("{")) fullText else "{$fullText"
 
         val start = jsonString.indexOf('{')
-        val end = jsonString.lastIndexOf('}')
-        val cleanJson = if (start != -1 && end != -1 && end > start) {
-            jsonString.substring(start, end + 1)
-        } else {
-            jsonString
+        val end = jsonString.indexOf('}', start)
+        if (start == -1 || end == -1 || end <= start) {
+            return fallback(defaultSummary)
         }
+
+        val cleanJson = jsonString.substring(start, end + 1)
 
         return try {
             val json = JSONObject(cleanJson)
             val important = json.optBoolean("important", false)
-            // Strict invariant: alert can ONLY be true if important is true
-            val rawAlert = json.optBoolean("alert", false)
-            val alert = if (important) (rawAlert || true) else false
-            val reason = json.optString("reason", if (important) "Matches user rules or context" else "General notification")
+            val alert = if (important) json.optBoolean("alert", false) else false
+            val reason = json.optString("reason", if (important) "Matches user context" else "General notification")
             val summary = json.optString("summary", defaultSummary).ifBlank { defaultSummary }
             val category = json.optString("category", "other")
 
@@ -44,30 +42,14 @@ object K2ResponseParser {
                 category = category
             )
         } catch (e: Exception) {
-            // Regex fallback for partially malformed JSON
-            val importantMatch = Regex(""""important"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE).find(cleanJson)
-            val alertMatch = Regex(""""alert"\s*:\s*(true|false)""", RegexOption.IGNORE_CASE).find(cleanJson)
-            val reasonMatch = Regex(""""reason"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE).find(cleanJson)
-
-            val important = importantMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
-            val rawAlert = alertMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
-            val alert = if (important) (rawAlert || true) else false
-            val reason = reasonMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim() ?: if (important) "Matches user rules or context" else "General notification"
-
-            NotificationAnalysis(
-                important = important,
-                alert = alert,
-                reason = reason,
-                summary = defaultSummary,
-                category = "other"
-            )
+            fallback(defaultSummary)
         }
     }
 
     private fun fallback(summary: String) = NotificationAnalysis(
         important = false,
         alert = false,
-        reason = "Does not match user rules or context",
+        reason = "General notification; does not match user context",
         summary = summary,
         category = "other"
     )
