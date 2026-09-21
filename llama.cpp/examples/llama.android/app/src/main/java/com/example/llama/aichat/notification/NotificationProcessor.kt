@@ -80,25 +80,16 @@ class NotificationProcessor(
         try {
             Log.d("NotificationProcessor", "Processing notification from ${data.packageName}: ${data.title}")
 
-            // Deduplication and meaningful change check
-            val latest = notificationRepository.getLatestByKey(data.notificationKey)
-
-            // If already processed and content hasn't changed, skip
-            if (latest != null && latest.processed && latest.title == data.title && latest.text == data.text) {
-                Log.d("NotificationProcessor", "Skipping already processed duplicate key: ${data.notificationKey}")
-                return
-            }
-
-            // Also check for recent identical notification within 15 seconds (same app, title, sender, text)
+            // Deduplication: Only skip if exact identical content arrived within 10 seconds (OS re-post)
             val recentDuplicate = notificationRepository.findRecentDuplicate(
                 packageName = data.packageName,
                 title = data.title,
                 text = data.text,
                 sender = data.sender,
-                sinceTimestamp = data.timestamp - 15_000L
+                sinceTimestamp = data.timestamp - 10_000L
             )
             if (recentDuplicate != null) {
-                Log.d("NotificationProcessor", "Skipping duplicate notification from ${data.packageName} (matched ID ${recentDuplicate.id})")
+                Log.d("NotificationProcessor", "Skipping duplicate notification event from ${data.packageName} (matched ID ${recentDuplicate.id})")
                 return
             }
 
@@ -215,8 +206,9 @@ class NotificationProcessor(
             } else {
                 // NO EXPLICIT RULE MATCHED. Apply triage and semantic context evaluation:
 
-                // A. True OS System UI / Screenshot / Battery detection
+                // A. True OS System UI / Android OS / Screenshot / Battery detection
                 val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
+                        data.packageName == "android" ||
                         data.packageName.contains("smartcapture") ||
                         data.packageName.contains("screencapture") ||
                         data.packageName.contains("screenshot") ||
@@ -225,7 +217,9 @@ class NotificationProcessor(
                         titleLower.contains("charging") ||
                         titleLower.contains("battery") ||
                         textLower.contains("charging") ||
-                        textLower.contains("battery")
+                        textLower.contains("battery") ||
+                        titleLower.contains("usb for") ||
+                        textLower.contains("tap for other usb")
 
                 // B. Messaging placeholder count / background sync (without actual message content)
                 val isPlaceholderSync = textLower.contains("checking for new messages") ||
@@ -238,6 +232,26 @@ class NotificationProcessor(
 
                 // C. Non-Latin / Regional Script (e.g. Telugu, Hindi) without a matching user rule
                 val isIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
+
+                // D. Commercial Advertisements, Carrier Offers, Recharge Promotions
+                val isCommercialOrPromotion = senderLower.contains("offer") ||
+                        titleLower.contains("offer") ||
+                        textLower.contains("offer") ||
+                        senderLower.contains("myjio") ||
+                        titleLower.contains("myjio") ||
+                        senderLower.contains("jio offer") ||
+                        senderLower.contains("airtel") ||
+                        senderLower.contains("vi offer") ||
+                        senderLower.contains("bsnl") ||
+                        textLower.contains("recharge") ||
+                        textLower.contains("cashback") ||
+                        textLower.contains("coupon") ||
+                        textLower.contains("flat % off") ||
+                        textLower.contains("discount") ||
+                        textLower.contains("promo code")
+
+                // E. Pure Media Placeholders without text
+                val isMediaPlaceholderOnly = textLower.trim() in setOf("image", "photo", "sticker", "gif", "voice message", "audio", "video", "document", "contact", "location")
 
                 when {
                     isSystemOrScreenshot -> {
@@ -256,6 +270,16 @@ class NotificationProcessor(
                         isImportant = false
                         shouldAlert = false
                         decisionReason = "Non-English notification (no matching user rule)"
+                    }
+                    isCommercialOrPromotion -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Commercial promotion / carrier offer (no matching rule)"
+                    }
+                    isMediaPlaceholderOnly -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Media attachment without message text"
                     }
                     generalContext.isNotBlank() -> {
                         // User provided natural language context: Let on-device K2 evaluate strictly against context!
@@ -283,13 +307,40 @@ class NotificationProcessor(
                         val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
                         aiCategory = analysis.category
 
-                        isImportant = analysis.important
-                        shouldAlert = analysis.alert
-                        decisionReason = if (analysis.important) {
-                            analysis.reason.ifBlank { "Matches user context: $generalContext" }
+                        if (analysis.important) {
+                            // Validate semantic context alignment (e.g. Job Context vs general text)
+                            val isJobContext = generalContext.contains("job", ignoreCase = true) ||
+                                    generalContext.contains("interview", ignoreCase = true) ||
+                                    generalContext.contains("hiring", ignoreCase = true) ||
+                                    generalContext.contains("recruiter", ignoreCase = true) ||
+                                    generalContext.contains("career", ignoreCase = true) ||
+                                    generalContext.contains("work", ignoreCase = true)
+
+                            if (isJobContext) {
+                                val jobKeywords = listOf("job", "interview", "hiring", "hire", "career", "recruiter", "recruitment", "application", "resume", "cv", "offer letter", "shortlisted", "selected", "assessment", "round", "test", "exam", "linkedin", "naukri", "internship", "vacancy", "opening", "salary", "ctc", "role", "position", "joining")
+                                val contentWords = "$senderLower $titleLower $textLower ${data.appName.lowercase()}"
+                                val hasJobMatch = jobKeywords.any { contentWords.contains(it) }
+
+                                if (!hasJobMatch) {
+                                    isImportant = false
+                                    shouldAlert = false
+                                    decisionReason = "Notification does not match job/career context"
+                                } else {
+                                    isImportant = true
+                                    shouldAlert = analysis.alert
+                                    decisionReason = analysis.reason.ifBlank { "Matches job/career context: $generalContext" }
+                                }
+                            } else {
+                                isImportant = true
+                                shouldAlert = analysis.alert
+                                decisionReason = analysis.reason.ifBlank { "Matches user context: $generalContext" }
+                            }
                         } else {
-                            analysis.reason.ifBlank { "General notification; does not match user context" }
+                            isImportant = false
+                            shouldAlert = false
+                            decisionReason = analysis.reason.ifBlank { "General notification; does not match user context" }
                         }
+
                         if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
                             finalSummary = analysis.summary
                         }
@@ -319,7 +370,7 @@ class NotificationProcessor(
             }
 
             val record = NotificationRecord(
-                id = latest?.id ?: 0,
+                id = 0, // Always create a distinct history entry to preserve message history!
                 notificationKey = data.notificationKey,
                 packageName = data.packageName,
                 appName = data.appName,
