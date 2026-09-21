@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -53,6 +54,7 @@ fun MainScreen(
     val activeFilter by viewModel.activeFilter.collectAsState()
 
     var showAddRuleDialog by remember { mutableStateOf(false) }
+    var showRetentionDialog by remember { mutableStateOf(false) }
     var initialRuleSuggestion by remember { mutableStateOf("") }
     var ruleToEdit by remember { mutableStateOf<NotificationRule?>(null) }
 
@@ -137,7 +139,7 @@ fun MainScreen(
 
                 RetentionSection(
                     selectedPeriod = retentionPeriod,
-                    onPeriodSelected = { viewModel.setRetentionPeriod(it) }
+                    onClick = { showRetentionDialog = true }
                 )
                 Spacer(modifier = Modifier.height(20.dp))
 
@@ -287,6 +289,17 @@ fun MainScreen(
             onConfirm = { newText ->
                 viewModel.updateRule(rule, newText)
                 ruleToEdit = null
+            }
+        )
+    }
+
+    if (showRetentionDialog) {
+        RetentionDialog(
+            currentPeriod = retentionPeriod,
+            onDismiss = { showRetentionDialog = false },
+            onSelect = { period ->
+                viewModel.setRetentionPeriod(period)
+                showRetentionDialog = false
             }
         )
     }
@@ -723,25 +736,98 @@ fun formatTime(timestamp: Long): String {
 @Composable
 fun RetentionSection(
     selectedPeriod: RetentionPeriod,
-    onPeriodSelected: (RetentionPeriod) -> Unit
+    onClick: () -> Unit
 ) {
-    Column {
-        Text("HISTORY RETENTION", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(6.dp))
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            RetentionPeriod.entries.forEach { period ->
-                FilterChip(
-                    selected = period == selectedPeriod,
-                    onClick = { onPeriodSelected(period) },
-                    label = { Text(period.label, fontSize = 12.sp) }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "HISTORY RETENTION",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
                 )
+                Text(
+                    "Auto-expires after ${selectedPeriod.label}",
+                    fontSize = 12.sp,
+                    color = Color.Gray
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${selectedPeriod.label} ▼",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+fun RetentionDialog(
+    currentPeriod: RetentionPeriod,
+    onDismiss: () -> Unit,
+    onSelect: (RetentionPeriod) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Notification Retention Period", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(
+                    "Select how long notifications are kept in history before expiring automatically:",
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                RetentionPeriod.entries.forEach { period ->
+                    val isSelected = period == currentPeriod
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(period) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { onSelect(period) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (period == RetentionPeriod.HOURS_24) "${period.label} (Default)" else period.label,
+                            fontSize = 15.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
 

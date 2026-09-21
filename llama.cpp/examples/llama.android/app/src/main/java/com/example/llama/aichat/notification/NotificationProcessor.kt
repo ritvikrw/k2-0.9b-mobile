@@ -278,6 +278,24 @@ class NotificationProcessor(
             val totalLatency = System.currentTimeMillis() - startTime
             Log.d("NotificationProcessor", "Analysis Complete in ${totalLatency}ms: Important=$isImportant, Alert=$shouldAlert, Sender=${data.sender ?: data.appName}, Reason=$decisionReason")
 
+            // Automatically prune expired notifications based on active retention duration
+            try {
+                val retentionName = prefs.getString("retention_period", "HOURS_24")
+                val retentionDuration = when (retentionName) {
+                    "DAYS_2" -> 2 * 24 * 60 * 60 * 1000L
+                    "DAYS_3" -> 3 * 24 * 60 * 60 * 1000L
+                    "DAYS_4" -> 4 * 24 * 60 * 60 * 1000L
+                    "DAYS_5" -> 5 * 24 * 60 * 60 * 1000L
+                    "DAYS_6" -> 6 * 24 * 60 * 60 * 1000L
+                    "DAYS_7" -> 7 * 24 * 60 * 60 * 1000L
+                    else -> 24 * 60 * 60 * 1000L // 24 Hours default (1 day expiration)
+                }
+                val cutoff = System.currentTimeMillis() - retentionDuration
+                notificationRepository.deleteOlderThan(cutoff)
+            } catch (e: Exception) {
+                Log.w("NotificationProcessor", "Retention cleanup error: ${e.message}")
+            }
+
             if (record.important && record.alert) {
                 Log.d("NotificationProcessor", "Firing AI alert chime for ${data.sender ?: data.appName}")
                 alertManager.triggerAlert(record)
