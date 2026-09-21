@@ -215,23 +215,41 @@ class NotificationProcessor(
             } else {
                 // NO EXPLICIT RULE MATCHED. Apply triage and semantic context evaluation:
 
-                // A. True OS System UI / Background empty sync detection
+                // A. True OS System UI / Screenshot / Battery detection
                 val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
+                        data.packageName.contains("smartcapture") ||
+                        data.packageName.contains("screencapture") ||
+                        data.packageName.contains("screenshot") ||
+                        titleLower.contains("screenshot") ||
+                        textLower.contains("screenshot") ||
                         titleLower.contains("charging") ||
                         titleLower.contains("battery") ||
-                        textLower.contains("checking for new messages") ||
-                        textLower.contains("searching for new messages") ||
-                        textLower.contains("whatsapp web")
+                        textLower.contains("charging") ||
+                        textLower.contains("battery")
 
-                // B. Non-Latin / Regional Script (e.g. Telugu, Hindi) without a matching user rule
+                // B. Messaging placeholder count / background sync (without actual message content)
+                val isPlaceholderSync = textLower.contains("checking for new messages") ||
+                        textLower.contains("searching for new messages") ||
+                        textLower.contains("whatsapp web") ||
+                        textLower.contains("backup in progress") ||
+                        Regex("^\\d+\\s+new\\s+messages?$", RegexOption.IGNORE_CASE).matches(textLower.trim()) ||
+                        textLower.trim().equals("new message", ignoreCase = true) ||
+                        textLower.trim().equals("new messages", ignoreCase = true)
+
+                // C. Non-Latin / Regional Script (e.g. Telugu, Hindi) without a matching user rule
                 val isIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
 
                 when {
                     isSystemOrScreenshot -> {
                         isImportant = false
                         shouldAlert = false
-                        decisionReason = "System or background notification"
-                        finalSummary = if (titleLower.contains("screenshot")) "Screenshot captured" else defaultCleanSummary
+                        decisionReason = "System or screenshot notification"
+                        finalSummary = if (titleLower.contains("screenshot") || textLower.contains("screenshot")) "Screenshot saved" else defaultCleanSummary
+                    }
+                    isPlaceholderSync -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Unlisted conversation placeholder / sync"
                     }
                     isIndicScript -> {
                         // Language filter for unlisted notifications

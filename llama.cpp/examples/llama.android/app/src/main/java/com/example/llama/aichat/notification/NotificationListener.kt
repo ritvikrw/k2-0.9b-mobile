@@ -55,10 +55,11 @@ class NotificationListener : NotificationListenerService() {
         }
 
         // Check EXTRA_TEXT_LINES (InboxStyle notifications)
-        if (text.isNullOrBlank()) {
-            val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-            if (!lines.isNullOrEmpty()) {
-                text = lines.filterNotNull().joinToString("\n") { it.toString().trim() }
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+        if (!lines.isNullOrEmpty()) {
+            val combinedLines = lines.filterNotNull().joinToString("\n") { it.toString().trim() }
+            if (combinedLines.isNotBlank() && (text.isNullOrBlank() || text!!.contains("new message", ignoreCase = true))) {
+                text = combinedLines
             }
         }
 
