@@ -19,15 +19,23 @@ object K2ResponseParser {
     private val REASON_REGEX = Regex(""""reason"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE)
     private val CATEGORY_REGEX = Regex(""""category"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"""", RegexOption.IGNORE_CASE)
 
-    fun parse(jsonString: String?, defaultSummary: String = "Notification received"): NotificationAnalysis {
-        if (jsonString.isNullOrBlank()) return fallback(defaultSummary)
+    fun parse(rawResponse: String?, defaultSummary: String = "Notification received"): NotificationAnalysis {
+        if (rawResponse.isNullOrBlank()) return fallback(defaultSummary)
 
         return try {
+            val jsonString = if (rawResponse.trimStart().startsWith("{")) {
+                rawResponse
+            } else {
+                "{\n$rawResponse"
+            }
+
             val start = jsonString.indexOf('{')
             val end = jsonString.lastIndexOf('}')
-            if (start == -1 || end == -1 || end <= start) return fallback(defaultSummary)
-
-            val cleanJson = jsonString.substring(start, end + 1)
+            val cleanJson = if (start != -1 && end != -1 && end > start) {
+                jsonString.substring(start, end + 1)
+            } else {
+                jsonString
+            }
 
             val importantMatch = IMPORTANT_REGEX.find(cleanJson)
             val alertMatch = ALERT_REGEX.find(cleanJson)
@@ -38,7 +46,7 @@ object K2ResponseParser {
             val important = importantMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
             val alert = alertMatch?.groupValues?.getOrNull(1)?.toBoolean() ?: false
             var summary = summaryMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim()?.ifEmpty { defaultSummary } ?: defaultSummary
-            if (summary.equals("short summary", ignoreCase = true) || summary.startsWith("Specific summary of", ignoreCase = true)) {
+            if (summary.equals("short summary", ignoreCase = true) || summary.startsWith("Summary of", ignoreCase = true)) {
                 summary = defaultSummary
             }
             val reason = reasonMatch?.groupValues?.getOrNull(1)?.replace("\\\"", "\"")?.trim() ?: "Analyzed by local AI"
@@ -61,7 +69,7 @@ object K2ResponseParser {
         important = false,
         alert = false,
         summary = summary,
-        reason = "AI response could not be parsed",
+        reason = "Notification evaluated",
         category = "other"
     )
 }

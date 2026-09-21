@@ -103,32 +103,8 @@ class NotificationProcessor(
 
             // 1. Retrieve user settings and rules
             val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            val generalContext = prefs.getString("important_context", "") ?: ""
+            val generalContext = prefs.getString("important_context", "")?.trim() ?: ""
             val rules = ruleRepository.getEnabledRules()
-
-            // 2. Build tailored context containing only general rules and rules matching this specific notification
-            val userContextText = K2PromptBuilder.buildRelevantUserContext(
-                generalContext = generalContext,
-                rules = rules.map { it.text },
-                appName = data.appName,
-                sender = data.sender,
-                title = data.title,
-                text = data.text
-            )
-
-            val prompt = K2PromptBuilder.buildPrompt(
-                userContext = userContextText,
-                appName = data.appName,
-                packageName = data.packageName,
-                title = data.title,
-                text = data.text,
-                sender = data.sender,
-                category = data.category
-            )
-
-            Log.d("NotificationProcessor", "Sending prompt to AI for ${data.sender} (${data.appName}):\n$prompt")
-            val aiResponse = inferenceManager.analyze(prompt)
-            Log.d("NotificationProcessor", "Raw AI Response for ${data.sender}:\n$aiResponse")
 
             val defaultCleanSummary = when {
                 !data.sender.isNullOrBlank() && !data.text.isNullOrBlank() && data.sender != data.appName -> "${data.sender}: ${data.text}"
@@ -137,121 +113,205 @@ class NotificationProcessor(
                 else -> "${data.appName} notification"
             }
 
-            val analysis = if (aiResponse != null) {
-                K2ResponseParser.parse(aiResponse, defaultCleanSummary)
-            } else {
-                K2ResponseParser.parse(null, defaultCleanSummary)
-            }
-
-            var isImportant = analysis.important
-            var shouldAlert = analysis.alert
-            var decisionReason = analysis.reason
-            var finalSummary = analysis.summary
-
-            // 3. Deterministic Rule Matching against sender & app
-            val stopWords = setOf(
-                "messages", "message", "from", "any", "all", "every", "is", "are", 
-                "important", "alert", "priority", "urgent", "on", "in", "notification", 
-                "notifications", "about", "to", "the", "and", "with", "for", "instagram", "insta", "whatsapp"
-            )
-
             val senderLower = data.sender?.lowercase()?.trim() ?: ""
             val titleLower = data.title?.lowercase()?.trim() ?: ""
             val textLower = data.text?.lowercase()?.trim() ?: ""
             val appLower = data.appName.lowercase().trim()
+            val packageLower = data.packageName.lowercase().trim()
+
+            // 2. Check Explicit Matching Rule (HIGHEST PRIORITY DETERMINISTIC OVERRIDE)
+            // If user wrote e.g. "any message from Madhu is important", "messages from krishna vardhan is important", "every msg from jio is important"
+            val stopWords = setOf(
+                "messages", "message", "from", "any", "all", "every", "is", "are", 
+                "important", "alert", "priority", "urgent", "on", "in", "notification", 
+                "notifications", "about", "to", "the", "and", "with", "for", "msg", "msgs", "sent", "by"
+            )
 
             val matchingRule = rules.firstOrNull { rule ->
                 val ruleLower = rule.text.lowercase().trim()
                 val ruleTokens = ruleLower.split(Regex("[^a-zA-Z0-9_]+"))
-                    .filter { it.length >= 3 && it !in stopWords }
+                    .filter { it.length >= 2 && it !in stopWords }
 
-                val sMatch = senderLower.isNotEmpty() && (
-                    ruleTokens.any { token -> senderLower.contains(token) }
-                )
-                val tMatch = titleLower.isNotEmpty() && (
-                    ruleTokens.any { token -> titleLower.contains(token) }
-                )
-                val aMatch = (ruleLower.contains("from $appLower") || ruleLower.contains("all $appLower")) && ruleTokens.isEmpty()
+                val sMatch = senderLower.isNotEmpty() && ruleTokens.isNotEmpty() && ruleTokens.any { token -> senderLower.contains(token) }
+                val tMatch = titleLower.isNotEmpty() && ruleTokens.isNotEmpty() && ruleTokens.any { token -> titleLower.contains(token) }
+                val aMatch = ruleTokens.isNotEmpty() && ruleTokens.any { token -> appLower.contains(token) || token.contains(appLower) }
+                val pkgMatch = ruleTokens.isNotEmpty() && ruleTokens.any { token -> packageLower.contains(token) }
 
-                (sMatch || tMatch || aMatch)
+                sMatch || tMatch || aMatch || pkgMatch
             }
 
-            // 4. Check General Context (e.g. "if any job related msg from anyone its important")
-            val jobKeywords = listOf("job", "opening", "interview", "recruiter", "hiring", "offer", "linkedin", "resume", "cv", "salary", "shortlisted", "referral")
-            val contextLower = generalContext.lowercase()
-            val matchesGeneralJobContext = (contextLower.contains("job") || contextLower.contains("interview") || contextLower.contains("recruiter")) &&
-                    jobKeywords.any { kw -> textLower.contains(kw) || titleLower.contains(kw) }
+            var isImportant = false
+            var shouldAlert = false
+            var decisionReason = "General notification; no matching rule or context"
+            var finalSummary = defaultCleanSummary
+            var aiCategory = "other"
 
-            // 5. System, sports, and screenshot detection
-            val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
-                    data.packageName.contains("screencapture") ||
-                    titleLower.contains("screenshot") ||
-                    titleLower.contains("charging") ||
-                    titleLower.contains("battery")
-
-            val isSportsScore = (appLower.contains("google") || data.packageName.contains("google")) &&
-                    (titleLower.contains("vs") || titleLower.contains("match") || textLower.contains("won by") || textLower.contains("wickets") || textLower.contains("score"))
-
-            val isCasualShortGreeting = senderLower.isNotEmpty() &&
-                    setOf("hi", "hello", "hey", "hii", "hiii", "yo", "sup", "👋", "👍", "k", "ok").contains(textLower.trim())
-
-            // 6. Apply Decision Rules & Override AI Hallucinations
             if (matchingRule != null) {
+                // Rule matched! Check if rule requires conditional urgency
                 val ruleLower = matchingRule.text.lowercase()
-                val isConditionalUrgency = ruleLower.contains("urgent") || ruleLower.contains("emergency") || ruleLower.contains("only")
+                val isConditionalUrgency = ruleLower.contains("urgent only") || ruleLower.contains("emergency only")
 
                 if (isConditionalUrgency) {
-                    if (isImportant || shouldAlert) {
+                    val containsUrgentWord = textLower.contains("urgent") || textLower.contains("emergency") || textLower.contains("asap") || textLower.contains("call me now")
+                    if (containsUrgentWord) {
                         isImportant = true
                         shouldAlert = true
                         decisionReason = "Urgent message matching rule: ${matchingRule.text}"
                     } else {
                         isImportant = false
                         shouldAlert = false
-                        decisionReason = "Casual message (rule requires urgency): ${matchingRule.text}"
+                        decisionReason = "Message from ${data.sender ?: data.appName} (rule requires urgent matter)"
                     }
                 } else {
+                    // Regular rule: ALWAYS IMPORTANT & ALERT (whether it's a reel, video call, liked message, or regional language)
                     isImportant = true
                     shouldAlert = true
                     decisionReason = "Matches user rule: ${matchingRule.text}"
                 }
-            } else if (matchesGeneralJobContext) {
-                isImportant = true
-                shouldAlert = true
-                decisionReason = "Matches important context: job-related message"
-            } else if (isSystemOrScreenshot) {
-                isImportant = false
-                shouldAlert = false
-                decisionReason = "System / screenshot notification"
-                finalSummary = if (titleLower.contains("screenshot")) "Screenshot captured" else defaultCleanSummary
-            } else if (isSportsScore) {
-                isImportant = false
-                shouldAlert = false
-                decisionReason = "Sports match update"
-                finalSummary = defaultCleanSummary
-            } else if (isCasualShortGreeting) {
-                isImportant = false
-                shouldAlert = false
-                decisionReason = "Casual greeting from unlisted contact"
-                finalSummary = "${data.sender}: ${data.text}"
-            } else if (!isImportant) {
-                decisionReason = if (decisionReason.isBlank() || decisionReason.contains("Pranav", ignoreCase = true) || decisionReason.contains("Krishna", ignoreCase = true) || decisionReason.contains("Madhu", ignoreCase = true)) {
-                    "General notification; no matching rule or context"
-                } else {
-                    decisionReason
-                }
             } else {
-                val mentionedOtherContact = (decisionReason.contains("Krishna", ignoreCase = true) && !senderLower.contains("krishna")) ||
-                        (decisionReason.contains("Pranav", ignoreCase = true) && !senderLower.contains("pranav")) ||
-                        (decisionReason.contains("Madhu", ignoreCase = true) && !senderLower.contains("madhu"))
+                // NO user rule matched for this sender/app. Apply strict triage:
 
-                if (mentionedOtherContact) {
-                    Log.w("NotificationProcessor", "Discarding hallucinated importance for ${data.sender}: $decisionReason")
-                    isImportant = false
-                    shouldAlert = false
-                    decisionReason = "General notification; no matching rule"
-                } else {
-                    shouldAlert = true
+                // A. Messaging Background Sync & Noise
+                val isBackgroundSync = textLower.contains("checking for new messages") ||
+                        textLower.contains("searching for new messages") ||
+                        textLower.contains("whatsapp web is currently active") ||
+                        textLower.contains("backup in progress") ||
+                        textLower.contains("waiting for this message") ||
+                        (appLower.contains("whatsapp") && textLower.isBlank() && titleLower.contains("whatsapp"))
+
+                // B. Android System UI, Battery, Screenshots
+                val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
+                        data.packageName.contains("screencapture") ||
+                        titleLower.contains("screenshot") ||
+                        titleLower.contains("charging") ||
+                        titleLower.contains("battery")
+
+                // C. Sports score notifications
+                val isSportsScore = (appLower.contains("google") || data.packageName.contains("google")) &&
+                        (titleLower.contains("vs") || titleLower.contains("match") || textLower.contains("won by") || textLower.contains("wickets") || textLower.contains("score"))
+
+                // D. Unlisted Social Media Noise (Likes, Follows, Reels, Reactions from unlisted contacts)
+                val isSocialNoise = textLower.contains("liked your reel") ||
+                        textLower.contains("liked your story") ||
+                        textLower.contains("liked your comment") ||
+                        textLower.contains("liked your post") ||
+                        textLower.contains("liked your photo") ||
+                        textLower.contains("liked a message") ||
+                        textLower.contains("liked your video") ||
+                        textLower.contains("started following you") ||
+                        textLower.contains("requested to follow you") ||
+                        textLower.contains("sent a reel") ||
+                        textLower.contains("shared a reel") ||
+                        textLower.contains("shared a post") ||
+                        textLower.contains("shared a video") ||
+                        textLower.contains("reacted to your story") ||
+                        textLower.contains("reacted with") ||
+                        textLower.contains("reacted to your message") ||
+                        textLower.contains("mentioned you in a comment") ||
+                        textLower.contains("tagged you in")
+
+                // E. Calls from unlisted contacts
+                val isUnlistedCall = (textLower.contains("ongoing call") || textLower.contains("incoming video call") || textLower.contains("video call with") || textLower.contains("missed call") || textLower.contains("ongoing video call"))
+
+                // F. Casual greetings from unlisted contacts
+                val isCasualShortGreeting = senderLower.isNotEmpty() &&
+                        setOf("hi", "hello", "hey", "hii", "hiii", "yo", "sup", "👋", "👍", "k", "ok", "lol", "lmao", "haha", "nice", "gm", "gn").contains(textLower.trim())
+
+                // G. Non-Latin / Indic Script Detection (Telugu, Devanagari, Tamil, Kannada, Malayalam, etc.)
+                // If message is in Telugu/Indic and NOT matched by a rule, ignore it.
+                val isNonLatinIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
+
+                // H. General Context Match (e.g., Job / Recruiter / Career Keywords)
+                val jobKeywords = listOf("job", "opening", "interview", "recruiter", "hiring", "offer", "linkedin", "resume", "cv", "salary", "shortlisted", "referral", "internship", "placement")
+                val contextLower = generalContext.lowercase()
+                val isJobContextActive = contextLower.contains("job") || contextLower.contains("interview") || contextLower.contains("recruiter") || contextLower.contains("career")
+                val matchesGeneralJobContext = isJobContextActive && jobKeywords.any { kw -> textLower.contains(kw) || titleLower.contains(kw) }
+
+                when {
+                    isBackgroundSync -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Messaging service background sync"
+                    }
+                    isSystemOrScreenshot -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "System / screenshot notification"
+                        finalSummary = if (titleLower.contains("screenshot")) "Screenshot captured" else defaultCleanSummary
+                    }
+                    isSportsScore -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Sports match update"
+                    }
+                    isSocialNoise -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Social interaction from unlisted sender"
+                    }
+                    isUnlistedCall -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Call from unlisted contact"
+                    }
+                    isCasualShortGreeting -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Casual greeting from unlisted contact"
+                    }
+                    isNonLatinIndicScript -> {
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "Non-English notification (no matching user rule)"
+                    }
+                    matchesGeneralJobContext -> {
+                        isImportant = true
+                        shouldAlert = true
+                        decisionReason = "Matches important context: job-related message"
+                    }
+                    generalContext.isNotBlank() -> {
+                        // General context is defined, run K2 AI model to evaluate semantic match
+                        val userContextText = K2PromptBuilder.buildRelevantUserContext(
+                            generalContext = generalContext,
+                            rules = emptyList(), // no specific person rule matched
+                            appName = data.appName,
+                            sender = data.sender,
+                            title = data.title,
+                            text = data.text
+                        )
+                        val prompt = K2PromptBuilder.buildPrompt(
+                            userContext = userContextText,
+                            appName = data.appName,
+                            packageName = data.packageName,
+                            title = data.title,
+                            text = data.text,
+                            sender = data.sender,
+                            category = data.category
+                        )
+                        Log.d("NotificationProcessor", "Sending prompt to AI for unlisted ${data.sender}:\n$prompt")
+                        val aiResponse = inferenceManager.analyze(prompt)
+                        Log.d("NotificationProcessor", "Raw AI Response for ${data.sender}:\n$aiResponse")
+
+                        val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
+                        aiCategory = analysis.category
+
+                        // Only accept importance if notification actually relates to user context
+                        if (analysis.important && (matchesGeneralJobContext || textLower.length > 10)) {
+                            isImportant = true
+                            shouldAlert = analysis.alert || true
+                            decisionReason = analysis.reason.ifBlank { "Matches user context: $generalContext" }
+                        } else {
+                            isImportant = false
+                            shouldAlert = false
+                            decisionReason = "General notification; does not match user context"
+                        }
+                    }
+                    else -> {
+                        // No rules and no context provided
+                        isImportant = false
+                        shouldAlert = false
+                        decisionReason = "General notification; no matching rule or context"
+                    }
                 }
             }
 
@@ -265,16 +325,22 @@ class NotificationProcessor(
                 shouldAlert = false
             }
 
-            // 7. Sanitize Summary: Discard hallucinated contact names in summary
+            // Sanitize Summary: Discard hallucinated contact names or template artifacts in summary
             val summaryMentionsOtherContact = (finalSummary.contains("Krishna", ignoreCase = true) && !senderLower.contains("krishna")) ||
                     (finalSummary.contains("Pranav", ignoreCase = true) && !senderLower.contains("pranav")) ||
                     (finalSummary.contains("Madhu", ignoreCase = true) && !senderLower.contains("madhu"))
 
-            if (summaryMentionsOtherContact || finalSummary.isBlank() || finalSummary.startsWith("Summary of", ignoreCase = true)) {
+            val containsPromptContamination = finalSummary.contains("math test", ignoreCase = true) ||
+                    finalSummary.contains("formula", ignoreCase = true) ||
+                    finalSummary.contains("sports score", ignoreCase = true) ||
+                    finalSummary.startsWith("Summary of", ignoreCase = true) ||
+                    finalSummary.startsWith("Specific summary", ignoreCase = true)
+
+            if (summaryMentionsOtherContact || containsPromptContamination || finalSummary.isBlank()) {
                 finalSummary = defaultCleanSummary
             }
 
-            var record = NotificationRecord(
+            val record = NotificationRecord(
                 id = latest?.id ?: 0,
                 notificationKey = data.notificationKey,
                 packageName = data.packageName,
@@ -288,7 +354,7 @@ class NotificationProcessor(
                 alert = shouldAlert,
                 summary = finalSummary,
                 reason = decisionReason,
-                aiCategory = analysis.category,
+                aiCategory = aiCategory,
                 processed = true
             )
 
@@ -300,9 +366,9 @@ class NotificationProcessor(
                 alertManager.triggerAlert(record)
             }
 
-            // Update status bar summary regardless
+            // Update status bar summary
             try {
-                val importantOnes = notificationRepository.getImportantNotificationsSync() // Need a sync or first()
+                val importantOnes = notificationRepository.getImportantNotificationsSync()
                 summaryManager.updateSummary(importantOnes)
             } catch (e: Exception) {
                 // Ignore summary update errors
