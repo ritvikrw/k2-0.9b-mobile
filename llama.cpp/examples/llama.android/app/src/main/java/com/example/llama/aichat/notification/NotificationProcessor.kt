@@ -80,13 +80,14 @@ class NotificationProcessor(
         try {
             Log.d("NotificationProcessor", "Processing notification from ${data.packageName}: ${data.title}")
 
-            // Deduplication: Only skip if exact identical content arrived within 10 seconds (OS re-post)
+            // Deduplication: Skip if exact identical notification already exists within 60 seconds (OS re-post / audio progress update)
             val recentDuplicate = notificationRepository.findRecentDuplicate(
                 packageName = data.packageName,
+                key = data.notificationKey,
                 title = data.title,
                 text = data.text,
                 sender = data.sender,
-                sinceTimestamp = data.timestamp - 10_000L
+                sinceTimestamp = data.timestamp - 60_000L
             )
             if (recentDuplicate != null) {
                 Log.d("NotificationProcessor", "Skipping duplicate notification event from ${data.packageName} (matched ID ${recentDuplicate.id})")

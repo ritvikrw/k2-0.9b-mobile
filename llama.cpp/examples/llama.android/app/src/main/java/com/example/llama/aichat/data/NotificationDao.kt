@@ -41,8 +41,22 @@ interface NotificationDao {
     @Query("SELECT * FROM notification_records WHERE notificationKey = :key ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestByKey(key: String): NotificationRecord?
 
-    @Query("SELECT * FROM notification_records WHERE packageName = :packageName AND ((title = :title AND text = :text) OR (sender = :sender AND text = :text)) AND timestamp >= :sinceTimestamp ORDER BY timestamp DESC LIMIT 1")
-    suspend fun findRecentDuplicate(packageName: String, title: String?, text: String?, sender: String?, sinceTimestamp: Long): NotificationRecord?
+    @Query("""
+        SELECT * FROM notification_records 
+        WHERE packageName = :packageName 
+        AND (
+            (notificationKey = :key AND COALESCE(title, '') = COALESCE(:title, '') AND COALESCE(text, '') = COALESCE(:text, ''))
+            OR (
+                COALESCE(title, '') = COALESCE(:title, '') 
+                AND COALESCE(text, '') = COALESCE(:text, '') 
+                AND (COALESCE(sender, '') = COALESCE(:sender, '') OR :sender IS NULL OR sender IS NULL)
+            )
+        )
+        AND timestamp >= :sinceTimestamp 
+        ORDER BY timestamp DESC 
+        LIMIT 1
+    """)
+    suspend fun findRecentDuplicate(packageName: String, key: String, title: String?, text: String?, sender: String?, sinceTimestamp: Long): NotificationRecord?
 
     @Query("SELECT * FROM notification_records WHERE processed = 0")
     suspend fun getUnprocessedNotifications(): List<NotificationRecord>

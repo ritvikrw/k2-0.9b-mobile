@@ -37,8 +37,8 @@ class NotificationRepository(private val notificationDao: NotificationDao) {
         return notificationDao.getLatestByKey(key)
     }
 
-    suspend fun findRecentDuplicate(packageName: String, title: String?, text: String?, sender: String?, sinceTimestamp: Long): NotificationRecord? {
-        return notificationDao.findRecentDuplicate(packageName, title, text, sender, sinceTimestamp)
+    suspend fun findRecentDuplicate(packageName: String, key: String, title: String?, text: String?, sender: String?, sinceTimestamp: Long): NotificationRecord? {
+        return notificationDao.findRecentDuplicate(packageName, key, title, text, sender, sinceTimestamp)
     }
 
     suspend fun getUnprocessedNotifications(): List<NotificationRecord> {
