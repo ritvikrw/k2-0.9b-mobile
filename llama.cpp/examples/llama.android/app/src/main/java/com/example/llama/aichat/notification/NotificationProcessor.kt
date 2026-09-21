@@ -95,7 +95,6 @@ class NotificationProcessor(
 
             // 1. Retrieve user settings and rules
             val prefs = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
-            val generalContext = prefs.getString("important_context", "")?.trim() ?: ""
             val rules = ruleRepository.getEnabledRules()
 
             val defaultCleanSummary = when {
@@ -134,7 +133,9 @@ class NotificationProcessor(
             val stopWords = setOf(
                 "messages", "message", "from", "any", "all", "every", "is", "are", 
                 "important", "alert", "priority", "urgent", "on", "in", "notification", 
-                "notifications", "about", "to", "the", "and", "with", "for", "msg", "msgs", "sent", "by"
+                "notifications", "about", "to", "the", "and", "with", "for", "msg", "msgs", 
+                "sent", "by", "if", "its", "it's", "it", "anyone", "someone", "everyone", 
+                "related", "relating", "containing", "contains", "having"
             )
 
             var matchingRule: NotificationRule? = null
@@ -144,45 +145,51 @@ class NotificationProcessor(
                 val ruleTokens = ruleLower.split(Regex("[^a-zA-Z0-9_]+"))
                     .filter { it.length >= 2 && it !in stopWords }
 
+                if (ruleTokens.isEmpty()) continue
+
                 // Check target entity (sender / app name / title)
-                val senderMatches = senderLower.isNotEmpty() && ruleTokens.isNotEmpty() && ruleTokens.any { token -> senderLower.contains(token) }
-                val titleMatches = titleLower.isNotEmpty() && ruleTokens.isNotEmpty() && ruleTokens.any { token -> titleLower.contains(token) }
-                val appMatches = ruleTokens.isNotEmpty() && ruleTokens.any { token -> appLower.contains(token) || token.contains(appLower) }
-                val packageMatches = ruleTokens.isNotEmpty() && ruleTokens.any { token -> packageLower.contains(token) }
+                val senderMatches = senderLower.isNotEmpty() && ruleTokens.any { token -> senderLower.contains(token) }
+                val titleMatches = titleLower.isNotEmpty() && ruleTokens.any { token -> titleLower.contains(token) }
+                val appMatches = ruleTokens.any { token -> appLower.contains(token) || token.contains(appLower) }
+                val packageMatches = ruleTokens.any { token -> packageLower.contains(token) }
+                val textMatches = textLower.isNotEmpty() && ruleTokens.any { token -> textLower.contains(token) }
 
-                val entityMatches = senderMatches || titleMatches || appMatches || packageMatches
+                val hasPersonConstraint = ruleLower.contains("from ") || ruleLower.contains("msg from") || ruleLower.contains("message from") || ruleLower.contains("messages from")
+                val isWildcardPerson = ruleLower.contains("from anyone") || ruleLower.contains("from someone") || ruleLower.contains("from everyone") || ruleLower.contains("from all")
+                val isSpecificPersonRule = hasPersonConstraint && !isWildcardPerson
 
-                if (entityMatches) {
-                    // Entity matched! Now evaluate Rule Semantic Constraints:
-                    val isSourceWide = ruleLower.contains("everything") || ruleLower.contains("all from") || ruleLower.contains("every notification") || (appMatches && !ruleLower.contains("message") && !ruleLower.contains("reel") && !ruleLower.contains("call"))
-                    val isReelRule = ruleLower.contains("reel")
-                    val isCallRule = ruleLower.contains("call")
-                    val isMessageRule = ruleLower.contains("message") || ruleLower.contains("messages") || ruleLower.contains("msg") || ruleLower.contains("msgs") || ruleLower.contains("chat")
+                val isReelRule = ruleLower.contains("reel") && !ruleLower.contains("message") && !ruleLower.contains("msg")
+                val isCallRule = ruleLower.contains("call") && !ruleLower.contains("message") && !ruleLower.contains("msg")
+                val isMessageRule = ruleLower.contains("message") || ruleLower.contains("messages") || ruleLower.contains("msg") || ruleLower.contains("msgs") || ruleLower.contains("chat")
+
+                val matchesTarget: Boolean = if (isSpecificPersonRule) {
+                    senderMatches || (titleMatches && !appLower.contains(titleLower))
+                } else {
+                    senderMatches || titleMatches || appMatches || packageMatches || textMatches
+                }
+
+                if (matchesTarget) {
+                    val isSourceWide = ruleLower.contains("everything") || ruleLower.contains("all from") || ruleLower.contains("every notification")
 
                     if (isSourceWide) {
-                        // SOURCE-WIDE RULE: matches ALL notifications from this source (regardless of language or type)
                         matchingRule = rule
                         break
                     } else if (isReelRule) {
-                        // PERSON + REEL RULE: strictly requires evidence of a Reel
                         if (isReel) {
                             matchingRule = rule
                             break
                         }
                     } else if (isCallRule) {
-                        // PERSON + CALL RULE: strictly requires evidence of a Call
                         if (isCall) {
                             matchingRule = rule
                             break
                         }
                     } else if (isMessageRule) {
-                        // PERSON + MESSAGE RULE: strictly requires that it is an actual message (NOT a reel, NOT a call, NOT a like)
                         if (!isReel && !isCall && !isSocialReaction) {
                             matchingRule = rule
                             break
                         }
                     } else {
-                        // General entity rule without conflicting constraint
                         matchingRule = rule
                         break
                     }
@@ -191,7 +198,7 @@ class NotificationProcessor(
 
             var isImportant = false
             var shouldAlert = false
-            var decisionReason = "General notification; no matching rule or context"
+            var decisionReason = "General notification; no matching rule"
             var finalSummary = defaultCleanSummary
             var aiCategory = "other"
 
@@ -206,116 +213,28 @@ class NotificationProcessor(
                         isImportant = true
                         shouldAlert = true
                         decisionReason = "Urgent notification matching rule: ${matchingRule.text}"
+                        aiCategory = "important"
                     } else {
                         isImportant = false
                         shouldAlert = false
                         decisionReason = "Notification matching rule: ${matchingRule.text} (requires urgent matter)"
+                        aiCategory = "other"
                     }
                 } else {
                     isImportant = true
                     shouldAlert = true
                     decisionReason = "Matches user rule: ${matchingRule.text}"
+                    aiCategory = "important"
                 }
             } else {
-                // NO EXPLICIT RULE MATCHED. Apply triage and semantic context evaluation:
-
-                // A. Messaging placeholder count / background sync (without actual message content)
-                val isPlaceholderSync = textLower.contains("checking for new messages") ||
-                        textLower.contains("searching for new messages") ||
-                        textLower.contains("whatsapp web") ||
-                        textLower.contains("backup in progress") ||
-                        Regex("^\\d+\\s+new\\s+messages?$", RegexOption.IGNORE_CASE).matches(textLower.trim()) ||
-                        textLower.trim().equals("new message", ignoreCase = true) ||
-                        textLower.trim().equals("new messages", ignoreCase = true)
-
-                // C. Non-Latin / Regional Script (e.g. Telugu, Hindi) without a matching user rule
-                val isIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
-
-                when {
-                    isSystemOrScreenshot -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "System or screenshot notification"
-                        finalSummary = if (titleLower.contains("screenshot") || textLower.contains("screenshot")) "Screenshot saved" else defaultCleanSummary
-                    }
-                    isPlaceholderSync -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Unlisted conversation placeholder / sync"
-                    }
-                    isIndicScript -> {
-                        // Language filter for unlisted notifications
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Non-English notification (no matching user rule)"
-                    }
-                    generalContext.isNotBlank() -> {
-                        val generalContextClean = generalContext.trim()
-                        val contextStopWords = setOf(
-                            "if", "any", "all", "every", "related", "relating", "msg", "msgs", "message", "messages",
-                            "chat", "chats", "from", "anyone", "someone", "everyone", "its", "it's", "it", "is", "are",
-                            "was", "were", "important", "alert", "alerts", "urgent", "urgency", "priority",
-                            "notification", "notifications", "please", "the", "a", "an", "and", "or", "to", "in", "on",
-                            "of", "for", "with", "about", "by", "at", "as", "be", "this", "that", "these", "those"
-                        )
-                        val contextTokens = generalContextClean.lowercase()
-                            .split(Regex("[^a-zA-Z0-9_]+"))
-                            .filter { it.length >= 3 && it !in contextStopWords }
-
-                        val matchesDynamicContext = contextTokens.isNotEmpty() && contextTokens.any { token ->
-                            contentLower.contains(token)
-                        }
-
-                        if (matchesDynamicContext) {
-                            isImportant = true
-                            shouldAlert = true
-                            decisionReason = "Matches user context: $generalContextClean"
-                            aiCategory = "important"
-                        } else {
-                            // User provided natural language context: Let on-device K2 evaluate!
-                            val userContextText = K2PromptBuilder.buildRelevantUserContext(
-                                generalContext = generalContextClean,
-                                rules = emptyList(),
-                                appName = data.appName,
-                                sender = data.sender,
-                                title = data.title,
-                                text = data.text
-                            )
-                            val prompt = K2PromptBuilder.buildPrompt(
-                                userContext = userContextText,
-                                appName = data.appName,
-                                packageName = data.packageName,
-                                title = data.title,
-                                text = data.text,
-                                sender = data.sender,
-                                category = data.category
-                            )
-                            Log.d("NotificationProcessor", "Invoking K2 AI for evaluation:\n$prompt")
-                            val aiResponse = inferenceManager.analyze(prompt)
-                            Log.d("NotificationProcessor", "Raw K2 AI Response:\n$aiResponse")
-
-                            val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
-                            aiCategory = analysis.category
-
-                            isImportant = analysis.important
-                            shouldAlert = analysis.alert
-                            decisionReason = if (analysis.important) {
-                                analysis.reason.ifBlank { "Matches user context: $generalContextClean" }
-                            } else {
-                                analysis.reason.ifBlank { "General notification; does not match user context" }
-                            }
-
-                            if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
-                                finalSummary = analysis.summary
-                            }
-                        }
-                    }
-                    else -> {
-                        // No rules and no context provided
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "General notification; no matching rule or context"
-                    }
+                // NO EXPLICIT RULE MATCHED
+                if (isSystemOrScreenshot) {
+                    decisionReason = "System or screenshot notification"
+                    finalSummary = if (titleLower.contains("screenshot") || textLower.contains("screenshot")) "Screenshot saved" else defaultCleanSummary
+                } else if (textLower.contains("checking for new messages") || textLower.contains("searching for new messages")) {
+                    decisionReason = "Unlisted conversation placeholder / sync"
+                } else {
+                    decisionReason = "General notification; no matching rule"
                 }
             }
 

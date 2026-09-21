@@ -47,7 +47,6 @@ fun MainScreen(
     val isPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsState()
     val isEnabled by viewModel.isEnabled.collectAsState()
     val modelState by viewModel.modelState.collectAsState()
-    val importantContext by viewModel.importantContext.collectAsState()
     val isAiAlertSoundEnabled by viewModel.isAiAlertSoundEnabled.collectAsState()
     val selectedNotification by viewModel.selectedNotification.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
@@ -121,12 +120,6 @@ fun MainScreen(
                     onPickFileClick = {
                         filePickerLauncher.launch("*/*")
                     }
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-
-                ImportantContextSection(
-                    contextText = importantContext,
-                    onContextChange = { viewModel.updateImportantContext(it) }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -417,22 +410,6 @@ fun StatusSection(
                 Text(stateText, fontSize = 12.sp, color = stateColor, fontWeight = FontWeight.SemiBold)
             }
         }
-    }
-}
-
-@Composable
-fun ImportantContextSection(contextText: String, onContextChange: (String) -> Unit) {
-    Column {
-        Text("IMPORTANT CONTEXT", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Spacer(modifier = Modifier.height(4.dp))
-        OutlinedTextField(
-            value = contextText,
-            onValueChange = onContextChange,
-            placeholder = { Text("e.g. I am currently waiting for the result of a job interview. Anything related to the recruiter or interview is important.") },
-            modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
-            maxLines = 4
-        )
     }
 }
 
