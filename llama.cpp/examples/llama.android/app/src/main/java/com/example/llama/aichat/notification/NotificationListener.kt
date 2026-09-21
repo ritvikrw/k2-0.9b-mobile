@@ -41,6 +41,11 @@ class NotificationListener : NotificationListenerService() {
         // Skip our own notifications to avoid infinite loops
         if (sbn.packageName == packageName) return
 
+        // Skip ongoing system status indicators (e.g. charging progress, USB connection, foreground system meters)
+        if (sbn.isOngoing && (sbn.packageName == "com.android.systemui" || sbn.packageName == "android")) {
+            return
+        }
+
         Log.d("NotificationListener", "Incoming notification from: ${sbn.packageName}")
 
         val notification = sbn.notification ?: return

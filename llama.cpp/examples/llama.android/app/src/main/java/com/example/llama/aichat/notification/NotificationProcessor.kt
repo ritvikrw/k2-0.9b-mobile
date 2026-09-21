@@ -112,10 +112,23 @@ class NotificationProcessor(
             val packageLower = data.packageName.lowercase().trim()
             val contentLower = "$senderLower $titleLower $textLower $appLower"
 
-            // Content Type Flags
+            // Content Type & System Flags
             val isReel = textLower.contains("reel") || titleLower.contains("reel")
             val isCall = textLower.contains("call") || titleLower.contains("call") || textLower.contains("calling") || titleLower.contains("calling")
             val isSocialReaction = textLower.contains("liked your") || textLower.contains("liked a") || textLower.contains("reacted") || textLower.contains("started following") || textLower.contains("commented")
+            val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
+                    data.packageName == "android" ||
+                    data.packageName.contains("smartcapture") ||
+                    data.packageName.contains("screencapture") ||
+                    data.packageName.contains("screenshot") ||
+                    titleLower.contains("screenshot") ||
+                    textLower.contains("screenshot") ||
+                    titleLower.contains("charging") ||
+                    titleLower.contains("battery") ||
+                    textLower.contains("charging") ||
+                    textLower.contains("battery") ||
+                    titleLower.contains("usb for") ||
+                    textLower.contains("tap for other usb")
 
             // 2. Strict Deterministic Rule Matching
             val stopWords = setOf(
@@ -206,22 +219,7 @@ class NotificationProcessor(
             } else {
                 // NO EXPLICIT RULE MATCHED. Apply triage and semantic context evaluation:
 
-                // A. True OS System UI / Android OS / Screenshot / Battery detection
-                val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
-                        data.packageName == "android" ||
-                        data.packageName.contains("smartcapture") ||
-                        data.packageName.contains("screencapture") ||
-                        data.packageName.contains("screenshot") ||
-                        titleLower.contains("screenshot") ||
-                        textLower.contains("screenshot") ||
-                        titleLower.contains("charging") ||
-                        titleLower.contains("battery") ||
-                        textLower.contains("charging") ||
-                        textLower.contains("battery") ||
-                        titleLower.contains("usb for") ||
-                        textLower.contains("tap for other usb")
-
-                // B. Messaging placeholder count / background sync (without actual message content)
+                // A. Messaging placeholder count / background sync (without actual message content)
                 val isPlaceholderSync = textLower.contains("checking for new messages") ||
                         textLower.contains("searching for new messages") ||
                         textLower.contains("whatsapp web") ||
@@ -313,8 +311,11 @@ class NotificationProcessor(
                 finalSummary = defaultCleanSummary
             }
 
+            val latestByKey = notificationRepository.getLatestByKey(data.notificationKey)
+            val recordId = if (isSystemOrScreenshot && latestByKey != null) latestByKey.id else 0L
+
             val record = NotificationRecord(
-                id = 0, // Always create a distinct history entry to preserve message history!
+                id = recordId, // System status updates in-place; messages create separate history entries!
                 notificationKey = data.notificationKey,
                 packageName = data.packageName,
                 appName = data.appName,
