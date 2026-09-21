@@ -119,8 +119,7 @@ class NotificationProcessor(
             val appLower = data.appName.lowercase().trim()
             val packageLower = data.packageName.lowercase().trim()
 
-            // 2. Check Explicit Matching Rule (HIGHEST PRIORITY DETERMINISTIC OVERRIDE)
-            // If user wrote e.g. "any message from Madhu is important", "messages from krishna vardhan is important", "every msg from jio is important"
+            // 2. Dynamic Rule Matching against ANY user rule
             val stopWords = setOf(
                 "messages", "message", "from", "any", "all", "every", "is", "are", 
                 "important", "alert", "priority", "urgent", "on", "in", "notification", 
@@ -147,133 +146,58 @@ class NotificationProcessor(
             var aiCategory = "other"
 
             if (matchingRule != null) {
-                // Rule matched! Check if rule requires conditional urgency
+                // User rule matched: check if rule specifies conditional urgency
                 val ruleLower = matchingRule.text.lowercase()
                 val isConditionalUrgency = ruleLower.contains("urgent only") || ruleLower.contains("emergency only")
 
                 if (isConditionalUrgency) {
-                    val containsUrgentWord = textLower.contains("urgent") || textLower.contains("emergency") || textLower.contains("asap") || textLower.contains("call me now")
+                    val containsUrgentWord = textLower.contains("urgent") || textLower.contains("emergency") || textLower.contains("asap")
                     if (containsUrgentWord) {
                         isImportant = true
                         shouldAlert = true
-                        decisionReason = "Urgent message matching rule: ${matchingRule.text}"
+                        decisionReason = "Urgent notification matching rule: ${matchingRule.text}"
                     } else {
                         isImportant = false
                         shouldAlert = false
-                        decisionReason = "Message from ${data.sender ?: data.appName} (rule requires urgent matter)"
+                        decisionReason = "Notification matching rule: ${matchingRule.text} (requires urgent matter)"
                     }
                 } else {
-                    // Regular rule: ALWAYS IMPORTANT & ALERT (whether it's a reel, video call, liked message, or regional language)
+                    // Unconditional rule: ALWAYS IMPORTANT & ALERT (reels, calls, messages, regional language)
                     isImportant = true
                     shouldAlert = true
                     decisionReason = "Matches user rule: ${matchingRule.text}"
                 }
             } else {
-                // NO user rule matched for this sender/app. Apply strict triage:
+                // NO user rule matched for this sender/app. Apply dynamic evaluation:
 
-                // A. Messaging Background Sync & Noise
-                val isBackgroundSync = textLower.contains("checking for new messages") ||
-                        textLower.contains("searching for new messages") ||
-                        textLower.contains("whatsapp web is currently active") ||
-                        textLower.contains("backup in progress") ||
-                        textLower.contains("waiting for this message") ||
-                        (appLower.contains("whatsapp") && textLower.isBlank() && titleLower.contains("whatsapp"))
-
-                // B. Android System UI, Battery, Screenshots
+                // A. True OS System UI / Background empty sync detection
                 val isSystemOrScreenshot = data.packageName == "com.android.systemui" ||
-                        data.packageName.contains("screencapture") ||
-                        titleLower.contains("screenshot") ||
                         titleLower.contains("charging") ||
-                        titleLower.contains("battery")
+                        titleLower.contains("battery") ||
+                        textLower.contains("checking for new messages") ||
+                        textLower.contains("searching for new messages") ||
+                        textLower.contains("whatsapp web")
 
-                // C. Sports score notifications
-                val isSportsScore = (appLower.contains("google") || data.packageName.contains("google")) &&
-                        (titleLower.contains("vs") || titleLower.contains("match") || textLower.contains("won by") || textLower.contains("wickets") || textLower.contains("score"))
-
-                // D. Unlisted Social Media Noise (Likes, Follows, Reels, Reactions from unlisted contacts)
-                val isSocialNoise = textLower.contains("liked your reel") ||
-                        textLower.contains("liked your story") ||
-                        textLower.contains("liked your comment") ||
-                        textLower.contains("liked your post") ||
-                        textLower.contains("liked your photo") ||
-                        textLower.contains("liked a message") ||
-                        textLower.contains("liked your video") ||
-                        textLower.contains("started following you") ||
-                        textLower.contains("requested to follow you") ||
-                        textLower.contains("sent a reel") ||
-                        textLower.contains("shared a reel") ||
-                        textLower.contains("shared a post") ||
-                        textLower.contains("shared a video") ||
-                        textLower.contains("reacted to your story") ||
-                        textLower.contains("reacted with") ||
-                        textLower.contains("reacted to your message") ||
-                        textLower.contains("mentioned you in a comment") ||
-                        textLower.contains("tagged you in")
-
-                // E. Calls from unlisted contacts
-                val isUnlistedCall = (textLower.contains("ongoing call") || textLower.contains("incoming video call") || textLower.contains("video call with") || textLower.contains("missed call") || textLower.contains("ongoing video call"))
-
-                // F. Casual greetings from unlisted contacts
-                val isCasualShortGreeting = senderLower.isNotEmpty() &&
-                        setOf("hi", "hello", "hey", "hii", "hiii", "yo", "sup", "👋", "👍", "k", "ok", "lol", "lmao", "haha", "nice", "gm", "gn").contains(textLower.trim())
-
-                // G. Non-Latin / Indic Script Detection (Telugu, Devanagari, Tamil, Kannada, Malayalam, etc.)
-                // If message is in Telugu/Indic and NOT matched by a rule, ignore it.
-                val isNonLatinIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
-
-                // H. General Context Match (e.g., Job / Recruiter / Career Keywords)
-                val jobKeywords = listOf("job", "opening", "interview", "recruiter", "hiring", "offer", "linkedin", "resume", "cv", "salary", "shortlisted", "referral", "internship", "placement")
-                val contextLower = generalContext.lowercase()
-                val isJobContextActive = contextLower.contains("job") || contextLower.contains("interview") || contextLower.contains("recruiter") || contextLower.contains("career")
-                val matchesGeneralJobContext = isJobContextActive && jobKeywords.any { kw -> textLower.contains(kw) || titleLower.contains(kw) }
+                // B. Non-Latin / Regional Script (e.g. Telugu) without a matching user rule
+                val isIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
 
                 when {
-                    isBackgroundSync -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Messaging service background sync"
-                    }
                     isSystemOrScreenshot -> {
                         isImportant = false
                         shouldAlert = false
-                        decisionReason = "System / screenshot notification"
+                        decisionReason = "System or background notification"
                         finalSummary = if (titleLower.contains("screenshot")) "Screenshot captured" else defaultCleanSummary
                     }
-                    isSportsScore -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Sports match update"
-                    }
-                    isSocialNoise -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Social interaction from unlisted sender"
-                    }
-                    isUnlistedCall -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Call from unlisted contact"
-                    }
-                    isCasualShortGreeting -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Casual greeting from unlisted contact"
-                    }
-                    isNonLatinIndicScript -> {
+                    isIndicScript -> {
                         isImportant = false
                         shouldAlert = false
                         decisionReason = "Non-English notification (no matching user rule)"
                     }
-                    matchesGeneralJobContext -> {
-                        isImportant = true
-                        shouldAlert = true
-                        decisionReason = "Matches important context: job-related message"
-                    }
                     generalContext.isNotBlank() -> {
-                        // General context is defined, run K2 AI model to evaluate semantic match
+                        // User provided natural language context: Let on-device K2 evaluate dynamically!
                         val userContextText = K2PromptBuilder.buildRelevantUserContext(
                             generalContext = generalContext,
-                            rules = emptyList(), // no specific person rule matched
+                            rules = emptyList(),
                             appName = data.appName,
                             sender = data.sender,
                             title = data.title,
@@ -288,22 +212,22 @@ class NotificationProcessor(
                             sender = data.sender,
                             category = data.category
                         )
-                        Log.d("NotificationProcessor", "Sending prompt to AI for unlisted ${data.sender}:\n$prompt")
+                        Log.d("NotificationProcessor", "Invoking K2 AI for evaluation:\n$prompt")
                         val aiResponse = inferenceManager.analyze(prompt)
-                        Log.d("NotificationProcessor", "Raw AI Response for ${data.sender}:\n$aiResponse")
+                        Log.d("NotificationProcessor", "Raw K2 AI Response:\n$aiResponse")
 
                         val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
                         aiCategory = analysis.category
 
-                        // Only accept importance if notification actually relates to user context
-                        if (analysis.important && (matchesGeneralJobContext || textLower.length > 10)) {
-                            isImportant = true
-                            shouldAlert = analysis.alert || true
-                            decisionReason = analysis.reason.ifBlank { "Matches user context: $generalContext" }
+                        isImportant = analysis.important
+                        shouldAlert = analysis.alert || analysis.important
+                        decisionReason = if (analysis.important) {
+                            analysis.reason.ifBlank { "Matches user context: $generalContext" }
                         } else {
-                            isImportant = false
-                            shouldAlert = false
-                            decisionReason = "General notification; does not match user context"
+                            analysis.reason.ifBlank { "General notification; does not match user context" }
+                        }
+                        if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
+                            finalSummary = analysis.summary
                         }
                     }
                     else -> {
@@ -315,7 +239,7 @@ class NotificationProcessor(
                 }
             }
 
-            // Check if user has an explicit 'do not alert' rule for this sender
+            // Check if user has an explicit 'do not alert' rule
             val isExplicitDoNotAlert = rules.any { rule ->
                 val rLower = rule.text.lowercase()
                 (rLower.contains("do not alert") || rLower.contains("dont alert") || rLower.contains("no alert")) &&
@@ -325,18 +249,8 @@ class NotificationProcessor(
                 shouldAlert = false
             }
 
-            // Sanitize Summary: Discard hallucinated contact names or template artifacts in summary
-            val summaryMentionsOtherContact = (finalSummary.contains("Krishna", ignoreCase = true) && !senderLower.contains("krishna")) ||
-                    (finalSummary.contains("Pranav", ignoreCase = true) && !senderLower.contains("pranav")) ||
-                    (finalSummary.contains("Madhu", ignoreCase = true) && !senderLower.contains("madhu"))
-
-            val containsPromptContamination = finalSummary.contains("math test", ignoreCase = true) ||
-                    finalSummary.contains("formula", ignoreCase = true) ||
-                    finalSummary.contains("sports score", ignoreCase = true) ||
-                    finalSummary.startsWith("Summary of", ignoreCase = true) ||
-                    finalSummary.startsWith("Specific summary", ignoreCase = true)
-
-            if (summaryMentionsOtherContact || containsPromptContamination || finalSummary.isBlank()) {
+            // Fallback for summary formatting
+            if (finalSummary.isBlank() || finalSummary.startsWith("Summary of", ignoreCase = true)) {
                 finalSummary = defaultCleanSummary
             }
 
