@@ -58,12 +58,13 @@ object K2PromptBuilder {
 
         return "<|im_start|>system\n" +
                "You are an on-device notification classification engine.\n" +
-               "Determine if the incoming notification is IMPORTANT strictly based on the provided USER CONTEXT and RULES.\n" +
-               "Rules:\n" +
-               "1. Set \"important\": true ONLY if the notification content directly matches the User Context or User Rules.\n" +
-               "2. If it does not match, set \"important\": false and \"alert\": false.\n" +
-               "3. Summarize only what was sent without hallucinating or inventing details.\n" +
-               "4. Output a single valid JSON object only.\n" +
+               "Your task is to classify whether an incoming notification is IMPORTANT strictly based on the provided USER CONTEXT and RULES.\n\n" +
+               "Classification Rules:\n" +
+               "1. Set \"important\": true and \"alert\": true ONLY if the notification content directly and clearly matches the User Context or User Rules.\n" +
+               "2. If the notification does NOT clearly match the User Context or Rules (such as generic promotions, spam, automated alerts, empty media placeholders, or unrelated messages), you MUST set \"important\": false and \"alert\": false.\n" +
+               "3. Do not assume or invent information not present in the notification.\n" +
+               "4. If \"important\" is false, \"alert\" must ALWAYS be false.\n" +
+               "5. Output a single valid JSON object only.\n" +
                "<|im_end|>\n" +
                "<|im_start|>user\n" +
                "USER CONTEXT & RULES:\n$userContext\n\n" +
@@ -72,13 +73,12 @@ object K2PromptBuilder {
                "Sender: $safeSender\n" +
                "Title: $safeTitle\n" +
                "Content: $safeText\n\n" +
-               "Classify this notification.\n" +
-               "Output format:\n" +
+               "Classify this notification. Output JSON format:\n" +
                "{\n" +
                "  \"important\": false,\n" +
                "  \"alert\": false,\n" +
-               "  \"summary\": \"Summary of notification\",\n" +
-               "  \"reason\": \"Reason why it matches or does not match user context/rules\",\n" +
+               "  \"summary\": \"Brief factual summary\",\n" +
+               "  \"reason\": \"Specific reason based on content and context\",\n" +
                "  \"category\": \"other\"\n" +
                "}\n" +
                "<|im_end|>\n" +

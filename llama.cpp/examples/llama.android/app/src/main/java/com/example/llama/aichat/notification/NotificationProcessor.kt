@@ -233,26 +233,6 @@ class NotificationProcessor(
                 // C. Non-Latin / Regional Script (e.g. Telugu, Hindi) without a matching user rule
                 val isIndicScript = Regex("[\\u0C00-\\u0C7F\\u0900-\\u097F\\u0B80-\\u0BFF\\u0C80-\\u0CFF\\u0D00-\\u0D7F]").containsMatchIn("${data.title} ${data.text}")
 
-                // D. Commercial Advertisements, Carrier Offers, Recharge Promotions
-                val isCommercialOrPromotion = senderLower.contains("offer") ||
-                        titleLower.contains("offer") ||
-                        textLower.contains("offer") ||
-                        senderLower.contains("myjio") ||
-                        titleLower.contains("myjio") ||
-                        senderLower.contains("jio offer") ||
-                        senderLower.contains("airtel") ||
-                        senderLower.contains("vi offer") ||
-                        senderLower.contains("bsnl") ||
-                        textLower.contains("recharge") ||
-                        textLower.contains("cashback") ||
-                        textLower.contains("coupon") ||
-                        textLower.contains("flat % off") ||
-                        textLower.contains("discount") ||
-                        textLower.contains("promo code")
-
-                // E. Pure Media Placeholders without text
-                val isMediaPlaceholderOnly = textLower.trim() in setOf("image", "photo", "sticker", "gif", "voice message", "audio", "video", "document", "contact", "location")
-
                 when {
                     isSystemOrScreenshot -> {
                         isImportant = false
@@ -270,16 +250,6 @@ class NotificationProcessor(
                         isImportant = false
                         shouldAlert = false
                         decisionReason = "Non-English notification (no matching user rule)"
-                    }
-                    isCommercialOrPromotion -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Commercial promotion / carrier offer (no matching rule)"
-                    }
-                    isMediaPlaceholderOnly -> {
-                        isImportant = false
-                        shouldAlert = false
-                        decisionReason = "Media attachment without message text"
                     }
                     generalContext.isNotBlank() -> {
                         // User provided natural language context: Let on-device K2 evaluate strictly against context!
@@ -307,38 +277,12 @@ class NotificationProcessor(
                         val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
                         aiCategory = analysis.category
 
-                        if (analysis.important) {
-                            // Validate semantic context alignment (e.g. Job Context vs general text)
-                            val isJobContext = generalContext.contains("job", ignoreCase = true) ||
-                                    generalContext.contains("interview", ignoreCase = true) ||
-                                    generalContext.contains("hiring", ignoreCase = true) ||
-                                    generalContext.contains("recruiter", ignoreCase = true) ||
-                                    generalContext.contains("career", ignoreCase = true) ||
-                                    generalContext.contains("work", ignoreCase = true)
-
-                            if (isJobContext) {
-                                val jobKeywords = listOf("job", "interview", "hiring", "hire", "career", "recruiter", "recruitment", "application", "resume", "cv", "offer letter", "shortlisted", "selected", "assessment", "round", "test", "exam", "linkedin", "naukri", "internship", "vacancy", "opening", "salary", "ctc", "role", "position", "joining")
-                                val contentWords = "$senderLower $titleLower $textLower ${data.appName.lowercase()}"
-                                val hasJobMatch = jobKeywords.any { contentWords.contains(it) }
-
-                                if (!hasJobMatch) {
-                                    isImportant = false
-                                    shouldAlert = false
-                                    decisionReason = "Notification does not match job/career context"
-                                } else {
-                                    isImportant = true
-                                    shouldAlert = analysis.alert
-                                    decisionReason = analysis.reason.ifBlank { "Matches job/career context: $generalContext" }
-                                }
-                            } else {
-                                isImportant = true
-                                shouldAlert = analysis.alert
-                                decisionReason = analysis.reason.ifBlank { "Matches user context: $generalContext" }
-                            }
+                        isImportant = analysis.important
+                        shouldAlert = analysis.alert
+                        decisionReason = if (analysis.important) {
+                            analysis.reason.ifBlank { "Matches user context: $generalContext" }
                         } else {
-                            isImportant = false
-                            shouldAlert = false
-                            decisionReason = analysis.reason.ifBlank { "General notification; does not match user context" }
+                            analysis.reason.ifBlank { "General notification; does not match user context" }
                         }
 
                         if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
