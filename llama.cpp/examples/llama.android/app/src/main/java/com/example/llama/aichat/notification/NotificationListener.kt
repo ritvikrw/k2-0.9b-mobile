@@ -46,37 +46,37 @@ class NotificationListener : NotificationListenerService() {
             return
         }
 
+        val notification = sbn.notification ?: return
+
+        // Skip grouped summary notifications to prevent duplicate mixed multi-message entries
+        val isGroupSummary = (notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0 || NotificationCompat.isGroupSummary(notification)
+        if (isGroupSummary) {
+            Log.d("NotificationListener", "Skipping group summary notification from ${sbn.packageName}")
+            return
+        }
+
         Log.d("NotificationListener", "Incoming notification from: ${sbn.packageName}")
 
-        val notification = sbn.notification ?: return
         val extras = notification.extras ?: return
 
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()?.trim()
         var text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.trim()
         val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.trim()
+        var sender: String? = null
 
-        if (text.isNullOrBlank() && !bigText.isNullOrBlank()) {
-            text = bigText
-        }
-
-        // Check EXTRA_TEXT_LINES (InboxStyle notifications)
-        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
-        if (!lines.isNullOrEmpty()) {
-            val combinedLines = lines.filterNotNull().joinToString("\n") { it.toString().trim() }
-            if (combinedLines.isNotBlank() && (text.isNullOrBlank() || text!!.contains("new message", ignoreCase = true))) {
-                text = combinedLines
-            }
-        }
-
-        // Check EXTRA_MESSAGES text (MessagingStyle notifications)
+        // 1. Check EXTRA_MESSAGES text (MessagingStyle notifications - standard for WhatsApp, Telegram, Messages)
         try {
             val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
             if (!messages.isNullOrEmpty()) {
                 val lastMsg = messages.lastOrNull()
                 if (lastMsg is android.os.Bundle) {
                     val msgText = lastMsg.getCharSequence("text")?.toString()?.trim()
-                    if (!msgText.isNullOrBlank() && (text.isNullOrBlank() || text!!.contains("new message", ignoreCase = true))) {
+                    if (!msgText.isNullOrBlank()) {
                         text = msgText
+                    }
+                    val msgSender = lastMsg.getCharSequence("sender")?.toString()?.trim()
+                    if (!msgSender.isNullOrBlank() && !msgSender.equals("You", ignoreCase = true)) {
+                        sender = msgSender
                     }
                 }
             }
@@ -84,28 +84,24 @@ class NotificationListener : NotificationListenerService() {
             Log.d("NotificationListener", "Error extracting message text: ${e.message}")
         }
 
-        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
-
-        // Extract sender name
-        var sender: String? = null
-        try {
-            // Check messaging style messages first
-            val messages = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
-            if (!messages.isNullOrEmpty()) {
-                val lastMsg = messages.lastOrNull()
-                if (lastMsg is android.os.Bundle) {
-                    val msgSender = lastMsg.getCharSequence("sender")?.toString()
-                    if (!msgSender.isNullOrBlank() && !msgSender.equals("You", ignoreCase = true)) {
-                        sender = msgSender
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.d("NotificationListener", "Error extracting message sender: ${e.message}")
+        if (text.isNullOrBlank() && !bigText.isNullOrBlank()) {
+            text = bigText
         }
 
+        // 2. Check EXTRA_TEXT_LINES (InboxStyle notifications) - strictly take the latest line only (NO concatenation!)
+        val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+        if (!lines.isNullOrEmpty() && (text.isNullOrBlank() || text!!.contains("new message", ignoreCase = true))) {
+            val lastLine = lines.lastOrNull()?.toString()?.trim()
+            if (!lastLine.isNullOrBlank()) {
+                text = lastLine
+            }
+        }
+
+        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()
+
+        // 3. Fallback sender extraction
         if (sender.isNullOrBlank() || sender.equals("You", ignoreCase = true)) {
-            val convTitle = extras.getCharSequence(NotificationCompat.EXTRA_CONVERSATION_TITLE)?.toString()
+            val convTitle = extras.getCharSequence(NotificationCompat.EXTRA_CONVERSATION_TITLE)?.toString()?.trim()
             if (!convTitle.isNullOrBlank() && !convTitle.equals("You", ignoreCase = true)) {
                 sender = convTitle
             }
@@ -117,7 +113,7 @@ class NotificationListener : NotificationListenerService() {
             }
         }
 
-        Log.d("NotificationListener", "Final Summary - App: ${sbn.packageName}, Sender: $sender, Title: $title, Text: ${text?.take(20)}...")
+        Log.d("NotificationListener", "Final Summary - App: ${sbn.packageName}, Sender: $sender, Title: $title, Text: ${text?.take(30)}...")
 
         // Do not silently discard unless Android itself provides no usable content
         if (title.isNullOrBlank() && text.isNullOrBlank()) {
