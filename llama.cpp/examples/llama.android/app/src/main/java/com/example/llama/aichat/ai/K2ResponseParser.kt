@@ -16,34 +16,51 @@ object K2ResponseParser {
         if (rawResponse.isNullOrBlank()) return fallback(defaultSummary)
 
         val fullText = rawResponse.trim()
-        val jsonString = if (fullText.startsWith("{")) fullText else "{$fullText"
 
-        val start = jsonString.indexOf('{')
-        val end = jsonString.indexOf('}', start)
-        if (start == -1 || end == -1 || end <= start) {
-            return fallback(defaultSummary)
+        // 1. Try finding JSON block
+        val start = fullText.indexOf('{')
+        val end = fullText.lastIndexOf('}')
+        if (start != -1 && end != -1 && end > start) {
+            val jsonCandidate = fullText.substring(start, end + 1)
+            try {
+                val json = JSONObject(jsonCandidate)
+                val important = json.optBoolean("important", false)
+                val alert = if (important) json.optBoolean("alert", false) else false
+                val reason = json.optString("reason", if (important) "Matches user context" else "General notification")
+                val summary = json.optString("summary", defaultSummary).ifBlank { defaultSummary }
+                val category = json.optString("category", if (important) "important" else "other")
+
+                return NotificationAnalysis(
+                    important = important,
+                    alert = alert,
+                    reason = reason,
+                    summary = summary,
+                    category = category
+                )
+            } catch (e: Exception) {
+                // fallback to key-value inspection
+            }
         }
 
-        val cleanJson = jsonString.substring(start, end + 1)
+        // 2. Resilient text parsing for key-value outputs
+        val lower = fullText.lowercase()
+        val hasImportantTrue = lower.contains("\"important\": true") || lower.contains("\"important\":true") || 
+                lower.contains("important: true") || lower.contains("important:true")
+        val hasImportantFalse = lower.contains("\"important\": false") || lower.contains("\"important\":false") || 
+                lower.contains("important: false") || lower.contains("important:false")
 
-        return try {
-            val json = JSONObject(cleanJson)
-            val important = json.optBoolean("important", false)
-            val alert = if (important) json.optBoolean("alert", false) else false
-            val reason = json.optString("reason", if (important) "Matches user context" else "General notification")
-            val summary = json.optString("summary", defaultSummary).ifBlank { defaultSummary }
-            val category = json.optString("category", "other")
-
-            NotificationAnalysis(
-                important = important,
-                alert = alert,
-                reason = reason,
-                summary = summary,
-                category = category
+        if (hasImportantTrue && !hasImportantFalse) {
+            val hasAlertTrue = lower.contains("\"alert\": true") || lower.contains("alert: true")
+            return NotificationAnalysis(
+                important = true,
+                alert = hasAlertTrue,
+                reason = "Matches user context",
+                summary = defaultSummary,
+                category = "important"
             )
-        } catch (e: Exception) {
-            fallback(defaultSummary)
         }
+
+        return fallback(defaultSummary)
     }
 
     private fun fallback(summary: String) = NotificationAnalysis(
@@ -54,3 +71,4 @@ object K2ResponseParser {
         category = "other"
     )
 }
+

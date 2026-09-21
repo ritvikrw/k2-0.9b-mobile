@@ -12,7 +12,7 @@ object K2PromptBuilder {
     ): String {
         val builder = StringBuilder()
         if (!generalContext.isNullOrBlank()) {
-            builder.append("Important User Context:\n").append(generalContext.trim()).append("\n\n")
+            builder.append("Context: ").append(generalContext.trim()).append("\n")
         }
 
         val contentLower = "${appName.lowercase()} ${sender?.lowercase() ?: ""} ${title?.lowercase() ?: ""} ${text?.lowercase() ?: ""}"
@@ -32,14 +32,14 @@ object K2PromptBuilder {
         }
 
         if (relevantRules.isNotEmpty()) {
-            builder.append("Active User Rules:\n")
+            builder.append("Rules:\n")
             relevantRules.forEach { rule ->
                 builder.append("- ").append(rule.trim()).append("\n")
             }
         }
 
         val result = builder.toString().trim()
-        return if (result.isEmpty()) "None specified." else result
+        return if (result.isEmpty()) "None." else result
     }
 
     fun buildPrompt(
@@ -57,31 +57,15 @@ object K2PromptBuilder {
         val safeText = text?.ifBlank { "" } ?: ""
 
         return "<|im_start|>system\n" +
-               "You are an on-device notification classification engine.\n" +
-               "Your task is to classify whether an incoming notification is IMPORTANT strictly based on the provided USER CONTEXT and RULES.\n\n" +
-               "Classification Rules:\n" +
-               "1. Set \"important\": true and \"alert\": true ONLY if the notification content directly and clearly matches the User Context or User Rules.\n" +
-               "2. If the notification does NOT clearly match the User Context or Rules (such as generic promotions, spam, automated alerts, empty media placeholders, or unrelated messages), you MUST set \"important\": false and \"alert\": false.\n" +
-               "3. Do not assume or invent information not present in the notification.\n" +
-               "4. If \"important\" is false, \"alert\" must ALWAYS be false.\n" +
-               "5. Output a single valid JSON object only.\n" +
+               "Classify whether an incoming notification is IMPORTANT based on User Context and Rules.\n" +
+               "Output valid JSON only: {\"important\": true/false, \"alert\": true/false, \"reason\": \"brief explanation\"}\n" +
                "<|im_end|>\n" +
                "<|im_start|>user\n" +
-               "USER CONTEXT & RULES:\n$userContext\n\n" +
-               "INCOMING NOTIFICATION:\n" +
-               "App: $safeApp\n" +
-               "Sender: $safeSender\n" +
-               "Title: $safeTitle\n" +
-               "Content: $safeText\n\n" +
-               "Classify this notification. Output JSON format:\n" +
-               "{\n" +
-               "  \"important\": false,\n" +
-               "  \"alert\": false,\n" +
-               "  \"summary\": \"Brief factual summary\",\n" +
-               "  \"reason\": \"Specific reason based on content and context\",\n" +
-               "  \"category\": \"other\"\n" +
-               "}\n" +
+               "User Context & Rules:\n$userContext\n\n" +
+               "Notification: App: $safeApp, Sender: $safeSender, Title: $safeTitle, Content: $safeText\n\n" +
+               "Output JSON:\n" +
                "<|im_end|>\n" +
-               "<|im_start|>assistant\n{"
+               "<|im_start|>assistant\n"
     }
 }
+

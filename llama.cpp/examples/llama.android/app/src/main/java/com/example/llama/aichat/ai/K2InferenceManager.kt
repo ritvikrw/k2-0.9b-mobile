@@ -237,7 +237,7 @@ class K2InferenceManager private constructor(private val context: Context) {
         _state.value = State.INFERENCE
         val startInference = System.currentTimeMillis()
         return try {
-            val result = localLLM?.generate(prompt, 128)
+            val result = localLLM?.generate(prompt, 64)
             val duration = System.currentTimeMillis() - startInference
             Log.i(TAG, "K2 Analysis finished in ${duration}ms (Response length: ${result?.length ?: 0} chars)")
             _state.value = State.READY

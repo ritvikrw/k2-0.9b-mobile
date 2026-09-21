@@ -250,41 +250,64 @@ class NotificationProcessor(
                         decisionReason = "Non-English notification (no matching user rule)"
                     }
                     generalContext.isNotBlank() -> {
-                        // User provided natural language context: Let on-device K2 evaluate strictly against context!
-                        val userContextText = K2PromptBuilder.buildRelevantUserContext(
-                            generalContext = generalContext,
-                            rules = emptyList(),
-                            appName = data.appName,
-                            sender = data.sender,
-                            title = data.title,
-                            text = data.text
+                        val generalContextClean = generalContext.trim()
+                        val contextStopWords = setOf(
+                            "if", "any", "all", "every", "related", "relating", "msg", "msgs", "message", "messages",
+                            "chat", "chats", "from", "anyone", "someone", "everyone", "its", "it's", "it", "is", "are",
+                            "was", "were", "important", "alert", "alerts", "urgent", "urgency", "priority",
+                            "notification", "notifications", "please", "the", "a", "an", "and", "or", "to", "in", "on",
+                            "of", "for", "with", "about", "by", "at", "as", "be", "this", "that", "these", "those"
                         )
-                        val prompt = K2PromptBuilder.buildPrompt(
-                            userContext = userContextText,
-                            appName = data.appName,
-                            packageName = data.packageName,
-                            title = data.title,
-                            text = data.text,
-                            sender = data.sender,
-                            category = data.category
-                        )
-                        Log.d("NotificationProcessor", "Invoking K2 AI for evaluation:\n$prompt")
-                        val aiResponse = inferenceManager.analyze(prompt)
-                        Log.d("NotificationProcessor", "Raw K2 AI Response:\n$aiResponse")
+                        val contextTokens = generalContextClean.lowercase()
+                            .split(Regex("[^a-zA-Z0-9_]+"))
+                            .filter { it.length >= 3 && it !in contextStopWords }
 
-                        val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
-                        aiCategory = analysis.category
-
-                        isImportant = analysis.important
-                        shouldAlert = analysis.alert
-                        decisionReason = if (analysis.important) {
-                            analysis.reason.ifBlank { "Matches user context: $generalContext" }
-                        } else {
-                            analysis.reason.ifBlank { "General notification; does not match user context" }
+                        val matchesDynamicContext = contextTokens.isNotEmpty() && contextTokens.any { token ->
+                            contentLower.contains(token)
                         }
 
-                        if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
-                            finalSummary = analysis.summary
+                        if (matchesDynamicContext) {
+                            isImportant = true
+                            shouldAlert = true
+                            decisionReason = "Matches user context: $generalContextClean"
+                            aiCategory = "important"
+                        } else {
+                            // User provided natural language context: Let on-device K2 evaluate!
+                            val userContextText = K2PromptBuilder.buildRelevantUserContext(
+                                generalContext = generalContextClean,
+                                rules = emptyList(),
+                                appName = data.appName,
+                                sender = data.sender,
+                                title = data.title,
+                                text = data.text
+                            )
+                            val prompt = K2PromptBuilder.buildPrompt(
+                                userContext = userContextText,
+                                appName = data.appName,
+                                packageName = data.packageName,
+                                title = data.title,
+                                text = data.text,
+                                sender = data.sender,
+                                category = data.category
+                            )
+                            Log.d("NotificationProcessor", "Invoking K2 AI for evaluation:\n$prompt")
+                            val aiResponse = inferenceManager.analyze(prompt)
+                            Log.d("NotificationProcessor", "Raw K2 AI Response:\n$aiResponse")
+
+                            val analysis = K2ResponseParser.parse(aiResponse, defaultCleanSummary)
+                            aiCategory = analysis.category
+
+                            isImportant = analysis.important
+                            shouldAlert = analysis.alert
+                            decisionReason = if (analysis.important) {
+                                analysis.reason.ifBlank { "Matches user context: $generalContextClean" }
+                            } else {
+                                analysis.reason.ifBlank { "General notification; does not match user context" }
+                            }
+
+                            if (analysis.summary.isNotBlank() && !analysis.summary.startsWith("Summary of", ignoreCase = true)) {
+                                finalSummary = analysis.summary
+                            }
                         }
                     }
                     else -> {
