@@ -7,6 +7,19 @@ class NotificationRepository(private val notificationDao: NotificationDao) {
     val importantNotifications: Flow<List<NotificationRecord>> = notificationDao.getImportantNotifications()
     val unimportantNotifications: Flow<List<NotificationRecord>> = notificationDao.getUnimportantNotifications()
 
+    fun getNotificationsSince(cutoff: Long): Flow<List<NotificationRecord>> =
+        notificationDao.getNotificationsSince(cutoff)
+
+    fun getImportantNotificationsSince(cutoff: Long): Flow<List<NotificationRecord>> =
+        notificationDao.getImportantNotificationsSince(cutoff)
+
+    fun getUnimportantNotificationsSince(cutoff: Long): Flow<List<NotificationRecord>> =
+        notificationDao.getUnimportantNotificationsSince(cutoff)
+
+    suspend fun deleteOlderThan(cutoff: Long) {
+        notificationDao.deleteOlderThan(cutoff)
+    }
+
     suspend fun getImportantNotificationsSync(): List<NotificationRecord> {
         return notificationDao.getImportantNotificationsSync()
     }

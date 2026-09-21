@@ -70,7 +70,8 @@ class K2InferenceManager private constructor(private val context: Context) {
         if (internalModel.exists() && internalModel.length() > 500_000_000L) {
             Log.i(TAG, "Found valid internal model: ${internalModel.absolutePath} (${internalModel.length()} bytes)")
             cachedModelPath = internalModel.absolutePath
-            return@withContext initialize(internalModel.absolutePath)
+            _state.value = State.UNINITIALIZED
+            return@withContext true
         }
 
         // Search in external directories
@@ -118,7 +119,8 @@ class K2InferenceManager private constructor(private val context: Context) {
                     tempFile.renameTo(internalModel)
                     Log.i(TAG, "Import completed to ${internalModel.absolutePath}")
                     cachedModelPath = internalModel.absolutePath
-                    initialize(internalModel.absolutePath)
+                    _state.value = State.UNINITIALIZED
+                    true
                 } else {
                     tempFile.delete()
                     _errorMessage.value = "Imported file appears incomplete (${tempFile.length()} bytes)"
@@ -264,6 +266,8 @@ class K2InferenceManager private constructor(private val context: Context) {
             val unloadStart = System.currentTimeMillis()
             try {
                 engine?.cleanUp()
+                engine = null
+                localLLM = null
                 val unloadMs = System.currentTimeMillis() - unloadStart
                 Log.i(TAG, "Model unloaded successfully in ${unloadMs}ms. Native RAM reclaimed.")
                 _state.value = State.UNINITIALIZED

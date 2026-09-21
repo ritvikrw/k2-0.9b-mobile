@@ -14,6 +14,22 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
+enum class RetentionPeriod(val label: String, val durationMillis: Long) {
+    HOURS_24("24 Hours", 24 * 60 * 60 * 1000L),
+    DAYS_2("2 Days", 2 * 24 * 60 * 60 * 1000L),
+    DAYS_3("3 Days", 3 * 24 * 60 * 60 * 1000L),
+    DAYS_4("4 Days", 4 * 24 * 60 * 60 * 1000L),
+    DAYS_5("5 Days", 5 * 24 * 60 * 60 * 1000L),
+    DAYS_6("6 Days", 6 * 24 * 60 * 60 * 1000L),
+    DAYS_7("7 Days", 7 * 24 * 60 * 60 * 1000L);
+
+    companion object {
+        fun fromName(name: String?): RetentionPeriod {
+            return entries.find { it.name == name } ?: HOURS_24
+        }
+    }
+}
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val db = AppDatabase.getDatabase(application)
     private val notificationRepo = NotificationRepository(db.notificationDao())
@@ -21,9 +37,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val summaryManager = NotificationSummaryManager(application)
     private val prefs = application.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    val importantNotifications = notificationRepo.importantNotifications
-    val unimportantNotifications = notificationRepo.unimportantNotifications
-    val allNotifications = notificationRepo.allNotifications
+    private val _retentionPeriod = MutableStateFlow(
+        RetentionPeriod.fromName(prefs.getString("retention_period", RetentionPeriod.HOURS_24.name))
+    )
+    val retentionPeriod: StateFlow<RetentionPeriod> = _retentionPeriod.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val importantNotifications: StateFlow<List<NotificationRecord>> = _retentionPeriod.flatMapLatest { period ->
+        val cutoff = System.currentTimeMillis() - period.durationMillis
+        notificationRepo.getImportantNotificationsSince(cutoff)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val unimportantNotifications: StateFlow<List<NotificationRecord>> = _retentionPeriod.flatMapLatest { period ->
+        val cutoff = System.currentTimeMillis() - period.durationMillis
+        notificationRepo.getUnimportantNotificationsSince(cutoff)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allNotifications: StateFlow<List<NotificationRecord>> = _retentionPeriod.flatMapLatest { period ->
+        val cutoff = System.currentTimeMillis() - period.durationMillis
+        notificationRepo.getNotificationsSince(cutoff)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val rules = ruleRepo.allRules
 
     val modelState = K2InferenceManager.getInstance(application).state
@@ -55,12 +91,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         checkNotificationAccess()
 
+        // Clean up any historical notifications exceeding maximum 7-day retention
+        viewModelScope.launch(Dispatchers.IO) {
+            val maxCutoff = System.currentTimeMillis() - (7 * 24 * 60 * 60 * 1000L)
+            notificationRepo.deleteOlderThan(maxCutoff)
+        }
+
         // Maintain persistent notification shade summary in sync with important records
         viewModelScope.launch {
             importantNotifications.collectLatest { list ->
                 summaryManager.updateSummary(list)
             }
         }
+    }
+
+    fun setRetentionPeriod(period: RetentionPeriod) {
+        _retentionPeriod.value = period
+        prefs.edit().putString("retention_period", period.name).apply()
     }
 
     fun setSearchQuery(query: String) {

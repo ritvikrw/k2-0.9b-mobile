@@ -1,9 +1,13 @@
 package com.example.llama.aichat.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "notification_records")
+@Entity(
+    tableName = "notification_records",
+    indices = [Index(value = ["timestamp"])]
+)
 data class NotificationRecord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val notificationKey: String,

@@ -6,9 +6,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -36,9 +38,10 @@ fun MainScreen(
     onRequestNotificationPermission: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val importantNotifications by viewModel.importantNotifications.collectAsState(initial = emptyList())
-    val unimportantNotifications by viewModel.unimportantNotifications.collectAsState(initial = emptyList())
-    val allNotifications by viewModel.allNotifications.collectAsState(initial = emptyList())
+    val importantNotifications by viewModel.importantNotifications.collectAsState()
+    val unimportantNotifications by viewModel.unimportantNotifications.collectAsState()
+    val allNotifications by viewModel.allNotifications.collectAsState()
+    val retentionPeriod by viewModel.retentionPeriod.collectAsState()
     val rules by viewModel.rules.collectAsState(initial = emptyList())
     val isAccessEnabled by viewModel.isNotificationAccessEnabled.collectAsState()
     val isPermissionGranted by viewModel.isNotificationPermissionGranted.collectAsState()
@@ -137,7 +140,13 @@ fun MainScreen(
                     onEdit = { ruleToEdit = it },
                     onDelete = { viewModel.deleteRule(it) }
                 )
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                RetentionSection(
+                    selectedPeriod = retentionPeriod,
+                    onPeriodSelected = { viewModel.setRetentionPeriod(it) }
+                )
+                Spacer(modifier = Modifier.height(20.dp))
 
                 // Search & Filter Section
                 Row(
@@ -145,7 +154,7 @@ fun MainScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("NOTIFICATIONS", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("NOTIFICATIONS (${retentionPeriod.label})", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text(
                         "${filteredNotifications.size} item${if (filteredNotifications.size != 1) "s" else ""}",
                         fontSize = 12.sp,
@@ -732,5 +741,30 @@ fun EditRuleDialog(rule: NotificationRule, onDismiss: () -> Unit, onConfirm: (St
 fun formatTime(timestamp: Long): String {
     val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
     return sdf.format(Date(timestamp))
+}
+
+@Composable
+fun RetentionSection(
+    selectedPeriod: RetentionPeriod,
+    onPeriodSelected: (RetentionPeriod) -> Unit
+) {
+    Column {
+        Text("HISTORY RETENTION", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            RetentionPeriod.entries.forEach { period ->
+                FilterChip(
+                    selected = period == selectedPeriod,
+                    onClick = { onPeriodSelected(period) },
+                    label = { Text(period.label, fontSize = 12.sp) }
+                )
+            }
+        }
+    }
 }
 
